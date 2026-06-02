@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pearl & Sir Gawain — Scholarly Q&A</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="fs-md">
+
+<div id="app">
+
+  <div class="top-bar"></div>
+
+  <!-- ── Toolbar ── -->
+  <div class="toolbar">
+    <div class="toolbar-inner">
+      <div class="toolbar-left">
+        <span class="tool-label">Pearl-Poet Scholar</span>
+      </div>
+      <div class="toolbar-right">
+        <button id="font-btn"          class="tool-btn" title="Cycle font size">Aa</button>
+        <button id="dark-btn"          class="tool-btn" title="Toggle dark mode">☾ Dark</button>
+        <button id="bookmark-view-btn" class="tool-btn" title="View saved answers">★ Saved <span id="bookmark-count" class="badge hidden">0</span></button>
+        <button id="export-btn"        class="tool-btn" title="Export conversation as Markdown">↓ Export</button>
+        <button id="clear-btn"         class="tool-btn" title="Clear conversation">✕ Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- ── Header ── -->
+    <header class="site-header">
+      <div class="ornament">✦ ✦ ✦</div>
+      <h1>Pearl &amp; Sir Gawain</h1>
+      <p class="subtitle">A scholarly text Q&amp;A — answers grounded in the original Middle English</p>
+    </header>
+
+    <!-- ── Scope tabs ── -->
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-scope="both">Both poems</button>
+      <button class="tab"        data-scope="pearl">Pearl</button>
+      <button class="tab"        data-scope="sggk">Sir Gawain</button>
+      <button class="tab"        data-scope="patience">Patience</button>
+      <button class="tab"        data-scope="cleanness">Cleanness</button>
+    </div>
+
+    <!-- ── Suggestion chips ── -->
+    <div class="suggestions-wrapper">
+      <div class="suggestions" id="suggestions">
+        <button class="sug">What is the Pearl-maiden's role?</button>
+        <button class="sug">How does Gawain receive the green girdle?</button>
+        <button class="sug">What themes connect the two poems?</button>
+        <button class="sug">Describe the beheading game</button>
+        <button class="sug">What does the pearl symbolise?</button>
+        <button class="sug">How does Gawain fail his knightly code?</button>
+        <button class="sug">What is the pentangle and what does it represent?</button>
+        <button class="sug">How is the Green Knight's identity revealed?</button>
+        <button class="sug">What is the dreamer's emotional arc in Pearl?</button>
+        <button class="sug">Explain the exchange of winnings game</button>
+        <button class="sug">What role does Morgan le Faye play?</button>
+        <button class="sug">How does the Pearl-poet use number symbolism?</button>
+        <button class="sug">What is the significance of the New Jerusalem in Pearl?</button>
+        <button class="sug">Compare the Green Knight to other trickster figures</button>
+        <button class="sug">What biblical allusions appear in Patience?</button>
+        <button class="sug">How does Cleanness define spiritual purity?</button>
+      </div>
+      <button id="sugs-toggle" class="sugs-toggle">Show more ▾</button>
+    </div>
+
+    <!-- ── Ornamental divider ── -->
+    <div class="divider"><span>✦</span></div>
+
+    <!-- ── Chat view ── -->
+    <div id="chat-view">
+      <div class="messages" id="messages">
+        <div class="empty">Your answers will appear here</div>
+      </div>
+    </div>
+
+    <!-- ── Bookmarks view ── -->
+    <div id="bookmarks-view" class="hidden">
+      <div class="view-header">
+        <h2>★ Saved Answers</h2>
+        <button id="back-btn" class="tool-btn">← Back to chat</button>
+      </div>
+      <div class="messages" id="bookmarks-list">
+        <div class="empty">No saved answers yet. Click ☆ on any response to save it here.</div>
+      </div>
+    </div>
+
+    <!-- ── Input area ── -->
+    <div class="input-wrap">
+      <div class="input-row">
+        <textarea id="question" placeholder="Ask about the poems…" rows="1"></textarea>
+        <button id="send-btn" disabled>Ask ↗</button>
+      </div>
+      <div class="input-meta">
+        <span id="char-count" class="char-count">0 / 600</span>
+        <span id="status-text" class="status-text"></span>
+      </div>
+    </div>
+
+    <!-- ── Citation helper ── -->
+    <div class="cite-bar">
+      <span class="cite-label">Generate citation:</span>
+      <button class="cite-btn" data-style="MLA">MLA</button>
+      <button class="cite-btn" data-style="Chicago">Chicago</button>
+      <button class="cite-btn" data-style="APA">APA</button>
+      <button class="cite-btn" data-style="MHRA">MHRA</button>
+    </div>
+
+  </div><!-- /container -->
+</div><!-- /app -->
+
+<script src="app.js"></script>
+</body>
+</html>
