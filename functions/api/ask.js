@@ -1,5 +1,9 @@
-export async function onRequestPost(context) {
-  const apiKey = context.env.GEMINI_API_KEY; // matches your secret's name
+export async function onRequest(context) {
+  if (context.request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 });
+  }
+
+  const apiKey = context.env.GEMINI_API_KEY;
   const body   = await context.request.json();
 
   const res = await fetch(
