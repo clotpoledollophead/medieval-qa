@@ -102,7 +102,15 @@ function bindTabs() {
    ══════════════════════════════════════════════════════════ */
 function bindSuggestions() {
   $$('.sug').forEach(btn => {
-    btn.addEventListener('click', () => ask(btn.textContent.trim()));
+    btn.addEventListener('click', () => {
+      const sc = btn.dataset.scope;
+      if (sc) {
+        $$('.tab').forEach(t => t.classList.remove('active'));
+        const tab = document.querySelector(`.tab[data-scope="${sc}"]`);
+        if (tab) { tab.classList.add('active'); scope = sc; }
+      }
+      ask(btn.textContent.trim());
+    });
   });
 }
 

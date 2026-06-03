@@ -199,7 +199,7 @@ body {
   white-space: nowrap;
 }
 .tab:hover:not(.active) { background: var(--accent-l); color: var(--accent); }
-.tab.active[data-scope="both"]      { background: var(--accent);   color: #fff; }
+.tab.active[data-scope="all"]      { background: var(--accent);   color: #fff; }
 .tab.active[data-scope="pearl"]     { background: var(--purple);   color: #fff; }
 .tab.active[data-scope="sggk"]      { background: var(--green);    color: #fff; }
 .tab.active[data-scope="patience"]  { background: var(--patience); color: #fff; }
@@ -330,7 +330,7 @@ body {
   margin-top: 8px;
   letter-spacing: 0.03em;
 }
-.pill-both      { background: var(--gold-l);     color: var(--gold);     }
+.pill-all      { background: var(--gold-l);     color: var(--gold);     }
 .pill-pearl     { background: var(--purple-l);   color: var(--purple);   }
 .pill-sggk      { background: var(--green-l);    color: var(--green);    }
 .pill-patience  { background: var(--patience-l); color: var(--patience); }
