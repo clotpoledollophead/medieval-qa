@@ -125,20 +125,16 @@ And I schal gyf hym þis gyfte and gryþe hym full nobly,
 };
 
 /* ── System prompt ────────────────────────────────────────── */
+// Words are now looked up via the embedded GLOSSARY — the LLM
+// handles only translation, prosody, and commentary.
 const DECODE_SYSTEM =
-  `You are an expert in Middle English philology, specialising in the Pearl-poet and MS Cotton Nero A.x. ` +
-  `When given a Middle English passage, respond ONLY with a single valid JSON object. ` +
-  `No preamble, no markdown fences, no commentary outside the JSON. ` +
-  `The object must have exactly these four keys:\n\n` +
-  `1. "words": array — one object per distinct token (skip punctuation), each with:\n` +
-  `   "me" (Middle English word as written), "phonetic" (plain-ASCII pronunciation hint, e.g. "PER-luh"), ` +
-  `   "modern" (closest Modern English equivalent), "grammar" (brief note, e.g. "n. nom. sg.", "v. 3sg. pres.")\n\n` +
-  `2. "translation": string — a complete, fluent Modern English rendering of the whole passage\n\n` +
-  `3. "prosody": array — one object per line of verse, each with:\n` +
-  `   "line" (the ME line), "pattern" (alliterating sounds, e.g. "aa/ax"), ` +
-  `   "note" (one sentence on the line's metrical or sonic interest)\n\n` +
-  `4. "commentary": string — 2–3 sentences of scholarly commentary, citing relevant critics or ` +
-  `the Andrew & Waldron edition (5th ed., Exeter, 2007) where appropriate.\n\n` +
+  `You are an expert in Middle English philology specialising in the Pearl-poet and MS Cotton Nero A.x. ` +
+  `Respond ONLY with a valid JSON object — no preamble, no markdown fences. ` +
+  `Use exactly these three keys in this order:\n\n` +
+  `1. "translation": string — fluent, complete Modern English rendering of the whole passage.\n\n` +
+  `2. "commentary": string — 2-3 sentences of scholarly commentary (cite Andrew & Waldron 5th ed. or key critics).\n\n` +
+  `3. "prosody": array — one object per verse line: ` +
+  `{ "line": "<ME line exactly>", "pattern": "<alliterating sound e.g. aa/ax>", "note": "<one short sentence>" }\n\n` +
   `Return only the JSON object.`;
 
 /* ── State ────────────────────────────────────────────────── */
@@ -261,15 +257,19 @@ async function decode() {
     const userMessage =
       `Decode this passage from ${poemNames[currentPoem] || 'the Pearl-poet'} (MS Cotton Nero A.x):\n\n${text}`;
 
-    const raw = await callWorker(DECODE_SYSTEM, userMessage, 2000);
+    const raw = await callWorker(DECODE_SYSTEM, userMessage, 1200);
+    const data = parseJsonRobust(raw);
+    if (!data) throw new Error('Could not parse model response');
 
-    // Strip any markdown fences
-    const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-    const start = cleaned.indexOf('{');
-    const end   = cleaned.lastIndexOf('}');
-    if (start === -1 || end === -1) throw new Error('No JSON object in response');
+    // Build words array from the embedded glossary
+    const tokens = tokenisePassage(text);
+    data.words = tokens.map(tok => {
+      const entry = lookupWord(tok);
+      return entry
+        ? { me: tok, phonetic: entry.phonetic, modern: entry.modern, grammar: entry.grammar, found: true }
+        : { me: tok, phonetic: '—', modern: '—', grammar: '—', found: false };
+    });
 
-    const data = JSON.parse(cleaned.slice(start, end + 1));
     renderResults(data, text);
     $('decode-results').classList.add('visible');
   } catch (err) {
@@ -279,6 +279,81 @@ async function decode() {
   $('decode-loading').classList.remove('visible');
   $('decode-btn').disabled = false;
   decoding = false;
+}
+
+/* ── Tokenise a Middle English passage into word tokens ──── */
+function tokenisePassage(text) {
+  // Split on whitespace and punctuation, keep only real word tokens
+  return text
+    .split(/[\s\n\r]+/)
+    .map(t => t.replace(/^[^\w\þþȝ]+|[^\w\þþȝ]+$/gi, '').toLowerCase())
+    .filter(t => t.length > 0 && !/^[0-9]+$/.test(t));
+}
+
+/* ══════════════════════════════════════════════════════════
+   ROBUST JSON PARSER
+   Handles truncated responses (words array cut mid-stream).
+   Fields are ordered translation → commentary → prosody → words
+   so the most useful parts survive even partial responses.
+   ══════════════════════════════════════════════════════════ */
+function parseJsonRobust(raw) {
+  const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  const start   = cleaned.indexOf('{');
+  if (start === -1) throw new Error('No JSON object in response');
+
+  const body = cleaned.slice(start);
+
+  // Attempt 1: normal parse up to last '}'
+  const end = body.lastIndexOf('}');
+  if (end !== -1) {
+    try { return JSON.parse(body.slice(0, end + 1)); } catch {}
+  }
+
+  // Attempt 2: patch a truncated object
+  return patchTruncated(body);
+}
+
+function patchTruncated(s) {
+  // Walk character-by-character tracking string / bracket state
+  let inStr = false, esc = false, braces = 0, brackets = 0;
+
+  for (const ch of s) {
+    if (esc)            { esc = false; continue; }
+    if (ch === '\\' && inStr) { esc = true; continue; }
+    if (ch === '"')     { inStr = !inStr; continue; }
+    if (inStr)          continue;
+    if (ch === '{')  braces++;
+    else if (ch === '}') braces--;
+    else if (ch === '[') brackets++;
+    else if (ch === ']') brackets--;
+  }
+
+  let patched = s;
+
+  // Close any open string literal
+  if (inStr) patched += '"';
+
+  // Trim back to the last complete array entry if an array is unclosed
+  if (brackets > 0) {
+    const lastGood = patched.lastIndexOf('},');
+    if (lastGood > 0) patched = patched.slice(0, lastGood + 1);
+    for (let i = 0; i < brackets; i++) patched += ']';
+  }
+
+  // Recount and close unclosed braces
+  let open = 0;
+  inStr = false; esc = false;
+  for (const ch of patched) {
+    if (esc)            { esc = false; continue; }
+    if (ch === '\\' && inStr) { esc = true; continue; }
+    if (ch === '"')     { inStr = !inStr; continue; }
+    if (inStr)          continue;
+    if (ch === '{')  open++;
+    else if (ch === '}') open--;
+  }
+  for (let i = 0; i < open; i++) patched += '}';
+
+  try { return JSON.parse(patched); } catch { return null; }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -302,19 +377,22 @@ function renderSideBySide(meText, modTranslation) {
 function renderGlossary(words) {
   const tbody = $('gloss-tbody');
   if (!words.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);font-style:italic;">No word data returned.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);font-style:italic;">No tokens found.</td></tr>';
     $('word-count-label').textContent = '';
     return;
   }
-  tbody.innerHTML = words.map(w => `
-    <tr>
+  const found  = words.filter(w => w.found).length;
+  const total  = words.length;
+  tbody.innerHTML = words.map(w => {
+    const dim = !w.found ? ' style="opacity:0.45"' : '';
+    return `<tr${dim}>
       <td class="gloss-me">${escHtml(w.me       || '')}</td>
       <td class="gloss-phon">${escHtml(w.phonetic || '')}</td>
-      <td class="gloss-mod">${escHtml(w.modern   || '')}</td>
+      <td class="gloss-mod">${w.found ? escHtml(w.modern || '') : '<em style="color:var(--muted)">not in glossary</em>'}</td>
       <td class="gloss-gram">${escHtml(w.grammar  || '')}</td>
-    </tr>`
-  ).join('');
-  $('word-count-label').textContent = `${words.length} tokens`;
+    </tr>`;
+  }).join('');
+  $('word-count-label').textContent = `${found}/${total} tokens matched`;
 }
 
 function renderProsody(lines) {
