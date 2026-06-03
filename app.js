@@ -5,21 +5,36 @@
 
 const WORKER_URL = '/api/ask';
 
+/* ── Chart colours (matches CSS vars) ────────────────────── */
+const CHART_COLORS = [
+  { bg: 'rgba(124,94,60,0.75)',  border: '#7c5e3c' },
+  { bg: 'rgba(74,53,112,0.75)',  border: '#4a3570' },
+  { bg: 'rgba(45,90,61,0.75)',   border: '#2d5a3d' },
+  { bg: 'rgba(139,48,32,0.75)',  border: '#8b3020' },
+  { bg: 'rgba(26,84,128,0.75)',  border: '#1a5480' },
+];
+
 /* ── System prompts ───────────────────────────────────────── */
 const BASE_SYSTEM =
   `You are a scholarly assistant specialising in the works of the Pearl-poet ` +
   `(the anonymous 14th-century author of Pearl, Sir Gawain and the Green Knight, ` +
   `Patience, and Cleanness). Answer questions accurately and helpfully. ` +
-  `When quoting Middle English passages, include a brief Modern English translation` +
-  `in parentheses. Keep answers clear and concise (at most 3-5 sentences) but avoid padding or preamble.` +
-  `Cite specific lines or scholarly sources for all claims, and provide line numbers for any quotations.`;
+  `When quoting Middle English passages, include a brief Modern English translation ` +
+  `in parentheses. Keep answers clear and concise (at most 3–5 sentences) but avoid padding or preamble. ` +
+  `Cite specific lines or scholarly sources for all claims, and provide line numbers for any quotations.\n\n` +
+  `FORMATTING RULES:\n` +
+  `- Use Markdown tables (| col | col | syntax) whenever presenting comparative or structured data.\n` +
+  `- When a question calls for quantitative or distributional data that would genuinely benefit from a chart, ` +
+  `output a fenced code block labelled \`\`\`chart containing only a JSON object with these fields: ` +
+  `{"type":"bar"|"line"|"pie","title":"...","labels":[...],"datasets":[{"label":"...","data":[...]}]}. ` +
+  `Use charts sparingly — only when a visual genuinely aids understanding.`;
 
 const SCOPE_CONTEXT = {
-  all:      'You may draw on all Pearl and Sir Gawain and the Green Knight.',
+  all:       'You may draw on all four Pearl-poet poems: Pearl, Sir Gawain and the Green Knight, Patience, and Cleanness.',
   pearl:     'Focus your answer only on the poem Pearl.',
   sggk:      'Focus your answer only on Sir Gawain and the Green Knight.',
-  patience:  'Focus your answer only on the poem Patience, the Pearl-poet\'s retelling of the Book of Jonah.',
-  cleanness: 'Focus your answer only on Cleanness (also called Purity), the Pearl-poet\'s meditation on moral purity through biblical narratives.',
+  patience:  "Focus your answer only on the poem Patience, the Pearl-poet's retelling of the Book of Jonah.",
+  cleanness: "Focus your answer only on Cleanness (also called Purity), the Pearl-poet's meditation on moral purity through biblical narratives.",
 };
 
 const PILL_LABELS = {
@@ -27,12 +42,20 @@ const PILL_LABELS = {
   patience: 'Patience', cleanness: 'Cleanness',
 };
 
+const POEM_NAMES = {
+  all:       'Pearl and Sir Gawain and the Green Knight',
+  pearl:     'Pearl',
+  sggk:      'Sir Gawain and the Green Knight',
+  patience:  'Patience',
+  cleanness: 'Cleanness',
+};
+
 const MAX_CHARS = 600;
 
 /* ── State ────────────────────────────────────────────────── */
 let scope    = 'all';
-let history  = [];   // Gemini-format [{role, parts:[{text}]}]
-let messages = [];   // [{id, role, text, scope, bookmarked, ts, failed}]
+let history  = [];
+let messages = [];
 let view     = 'chat';
 let loading  = false;
 let msgId    = 0;
@@ -50,7 +73,6 @@ const statusText   = $('status-text');
 const bookmarkCnt  = $('bookmark-count');
 const chatView     = $('chat-view');
 const bookmarkView = $('bookmarks-view');
-const sugBox       = $('suggestions');
 
 /* ══════════════════════════════════════════════════════════
    INIT
@@ -62,9 +84,10 @@ function init() {
   bindInput();
   bindToolbar();
   bindCitationBar();
+  bindFootnoteModal();
 }
 
-/* ── Preferences (localStorage) ──────────────────────────── */
+/* ── Preferences ──────────────────────────────────────────── */
 function loadPreferences() {
   const dark = localStorage.getItem('darkMode') === 'true';
   if (dark) document.documentElement.setAttribute('data-theme', 'dark');
@@ -73,16 +96,12 @@ function loadPreferences() {
   document.body.classList.add('fs-' + fs);
 
   const saved = JSON.parse(localStorage.getItem('bookmarks') || '[]');
-  saved.forEach(m => {
-    m.bookmarked = true;
-    messages.push(m);
-  });
+  saved.forEach(m => { m.bookmarked = true; messages.push(m); });
   updateBookmarkBadge();
 }
 
 function saveBookmarks() {
-  const bk = messages.filter(m => m.bookmarked);
-  localStorage.setItem('bookmarks', JSON.stringify(bk));
+  localStorage.setItem('bookmarks', JSON.stringify(messages.filter(m => m.bookmarked)));
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -119,15 +138,10 @@ function bindSuggestions() {
    INPUT
    ══════════════════════════════════════════════════════════ */
 function bindInput() {
-  questionEl.addEventListener('input', () => {
-    autoResize(questionEl);
-    updateCharCounter();
-  });
-
+  questionEl.addEventListener('input', () => { autoResize(questionEl); updateCharCounter(); });
   questionEl.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
   });
-
   sendBtn.addEventListener('click', () => ask());
 }
 
@@ -158,20 +172,20 @@ async function ask(question) {
   setLoading(true);
   setStatus('Consulting the texts…');
 
-  const userMsg = addMessage('user', q);
+  addMessage('user', q);
   history.push({ role: 'user', parts: [{ text: q }] });
 
   const thinkId = showThinking();
   const systemPrompt = `${BASE_SYSTEM}\n\n${SCOPE_CONTEXT[scope]}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout    = setTimeout(() => controller.abort(), 30000);
 
   try {
     const res = await fetch(WORKER_URL, {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
+      signal:  controller.signal,
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: history,
@@ -209,14 +223,18 @@ async function ask(question) {
       }
     }
 
+    // Render any charts now that the full response is in
+    const msgEl = messagesEl.querySelector(`[data-id="${assistantMsg.id}"]`);
+    if (msgEl) renderCharts(msgEl);
+
     history.push({ role: 'model', parts: [{ text: fullText }] });
     setStatus('');
 
   } catch (err) {
     clearTimeout(timeout);
     hideThinking(thinkId);
-    const errText = formatError(err.name === 'AbortError' ? 'Request timed out after 30 seconds.' : err.message);
-    addMessage('assistant', errText, scope, true);
+    const label = err.name === 'AbortError' ? 'Request timed out after 30 seconds.' : err.message;
+    addMessage('assistant', formatError(label), scope, true);
     history.pop();
     setStatus('');
   }
@@ -236,6 +254,75 @@ function formatError(msg) {
 function setLoading(on) {
   loading = on;
   sendBtn.disabled = on;
+}
+
+/* ══════════════════════════════════════════════════════════
+   CHART RENDERING
+   ══════════════════════════════════════════════════════════ */
+let chartCounter = 0;
+
+function renderCharts(container) {
+  const isDark    = document.documentElement.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#f0e8dc' : '#261a10';
+  const gridColor = isDark ? '#3d3028' : '#e2d9cc';
+
+  container.querySelectorAll('code.language-chart').forEach(codeEl => {
+    try {
+      const data   = JSON.parse(codeEl.textContent);
+      const pre    = codeEl.closest('pre');
+      const canvasId = 'chart-' + chartCounter++;
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'chart-wrapper';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'chart-title';
+      titleEl.textContent = data.title || '';
+      if (data.title) wrapper.appendChild(titleEl);
+
+      const canvas = document.createElement('canvas');
+      canvas.id = canvasId;
+      wrapper.appendChild(canvas);
+
+      pre.replaceWith(wrapper);
+
+      const isPie = data.type === 'pie' || data.type === 'doughnut';
+
+      new Chart(canvas, {
+        type: data.type || 'bar',
+        data: {
+          labels: data.labels || [],
+          datasets: (data.datasets || []).map((ds, i) => ({
+            label:           ds.label,
+            data:            ds.data,
+            backgroundColor: isPie
+              ? CHART_COLORS.map(c => c.bg)
+              : CHART_COLORS[i % CHART_COLORS.length].bg,
+            borderColor: isPie
+              ? CHART_COLORS.map(c => c.border)
+              : CHART_COLORS[i % CHART_COLORS.length].border,
+            borderWidth: 1.5,
+            tension: 0.35,
+          })),
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              display: true,
+              labels: { color: textColor, font: { family: 'EB Garamond, Georgia, serif', size: 13 } },
+            },
+          },
+          scales: isPie ? {} : {
+            x: { ticks: { color: textColor }, grid: { color: gridColor } },
+            y: { ticks: { color: textColor }, grid: { color: gridColor }, beginAtZero: true },
+          },
+        },
+      });
+    } catch (e) {
+      console.warn('Chart render failed:', e);
+    }
+  });
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -270,18 +357,21 @@ function renderMessage(msg, container) {
       ${!isUser ? `<div><span class="pill pill-${msg.scope}">${PILL_LABELS[msg.scope] || ''}</span></div>` : ''}
     </div>
     <div class="msg-actions">
-      ${!isUser ? `<button class="action-btn copy-btn" data-id="${msg.id}" title="Copy answer">⎘ Copy</button>` : ''}
-      ${!isUser ? `<button class="action-btn bk-btn${msg.bookmarked ? ' bookmarked' : ''}" data-id="${msg.id}" title="${msg.bookmarked ? 'Unsave' : 'Save answer'}">
+      ${!isUser ? `<button class="action-btn copy-btn"     data-id="${msg.id}" title="Copy answer">⎘ Copy</button>` : ''}
+      ${!isUser ? `<button class="action-btn fn-btn"       data-id="${msg.id}" title="Generate footnotes">¶ Footnote</button>` : ''}
+      ${!isUser ? `<button class="action-btn bk-btn${msg.bookmarked ? ' bookmarked' : ''}" data-id="${msg.id}">
         ${msg.bookmarked ? '★ Saved' : '☆ Save'}
       </button>` : ''}
       ${msg.failed ? `<button class="action-btn retry-btn" data-id="${msg.id}" title="Retry">↺ Retry</button>` : ''}
     </div>`;
 
   const copyBtn  = div.querySelector('.copy-btn');
+  const fnBtn    = div.querySelector('.fn-btn');
   const bkBtn    = div.querySelector('.bk-btn');
   const retryBtn = div.querySelector('.retry-btn');
 
   if (copyBtn)  copyBtn.addEventListener('click',  () => copyMessage(msg.id, copyBtn));
+  if (fnBtn)    fnBtn.addEventListener('click',    () => openFootnoteModal(msg.id));
   if (bkBtn)    bkBtn.addEventListener('click',    () => toggleBookmark(msg.id));
   if (retryBtn) retryBtn.addEventListener('click', () => retryMessage(msg.id));
 
@@ -298,10 +388,7 @@ function renderAllMessages(container, list) {
 }
 
 function escHtml(t) {
-  return t
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function renderText(text, isAssistant) {
@@ -317,7 +404,7 @@ function scrollBottom() {
 /* ── Thinking bubble ──────────────────────────────────────── */
 let thinkCounter = 0;
 function showThinking() {
-  const id = 'think-' + thinkCounter++;
+  const id  = 'think-' + thinkCounter++;
   const div = document.createElement('div');
   div.className = 'msg assistant';
   div.id = id;
@@ -342,9 +429,7 @@ async function copyMessage(id, btn) {
     btn.textContent = '✓ Copied';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = '⎘ Copy'; btn.classList.remove('copied'); }, 2000);
-  } catch {
-    prompt('Copy this text:', msg.text);
-  }
+  } catch { prompt('Copy this text:', msg.text); }
 }
 
 function toggleBookmark(id) {
@@ -352,15 +437,14 @@ function toggleBookmark(id) {
   if (!msg) return;
   msg.bookmarked = !msg.bookmarked;
 
-  const chatBkBtn = messagesEl.querySelector(`.bk-btn[data-id="${id}"]`);
-  if (chatBkBtn) {
-    chatBkBtn.textContent = msg.bookmarked ? '★ Saved' : '☆ Save';
-    chatBkBtn.classList.toggle('bookmarked', msg.bookmarked);
+  const btn = messagesEl.querySelector(`.bk-btn[data-id="${id}"]`);
+  if (btn) {
+    btn.textContent = msg.bookmarked ? '★ Saved' : '☆ Save';
+    btn.classList.toggle('bookmarked', msg.bookmarked);
   }
 
   updateBookmarkBadge();
   saveBookmarks();
-
   if (view === 'bookmarks') renderAllMessages(bookmarkList, messages.filter(m => m.bookmarked));
 }
 
@@ -373,15 +457,97 @@ function updateBookmarkBadge() {
 function retryMessage(id) {
   const failedMsg = messages.find(m => m.id === id);
   if (!failedMsg) return;
-  const idx = messages.indexOf(failedMsg);
+  const idx     = messages.indexOf(failedMsg);
   const userMsg = messages.slice(0, idx).reverse().find(m => m.role === 'user');
   if (!userMsg) return;
-
   messages.splice(idx, 1);
   const el = messagesEl.querySelector(`[data-id="${id}"]`);
   if (el) el.remove();
-
   ask(userMsg.text);
+}
+
+/* ══════════════════════════════════════════════════════════
+   FOOTNOTE MODAL
+   ══════════════════════════════════════════════════════════ */
+const footnoteModal = $('footnote-modal');
+const modalBody     = $('modal-body');
+const modalCopy     = $('modal-copy');
+let   modalText     = '';
+
+function bindFootnoteModal() {
+  $('modal-close').addEventListener('click', closeFootnoteModal);
+  footnoteModal.addEventListener('click', e => { if (e.target === footnoteModal) closeFootnoteModal(); });
+  modalCopy.addEventListener('click', () => {
+    navigator.clipboard.writeText(modalText).catch(() => prompt('Copy:', modalText));
+    modalCopy.textContent = '✓ Copied';
+    setTimeout(() => { modalCopy.textContent = '⎘ Copy all'; }, 2000);
+  });
+}
+
+function openFootnoteModal(msgId) {
+  const msg = messages.find(m => m.id === msgId);
+  if (!msg) return;
+
+  modalText = '';
+  modalBody.innerHTML = `<div class="modal-loading">Generating footnotes<span class="thinking-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span></div>`;
+  footnoteModal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+
+  streamFootnote(msg.text);
+}
+
+function closeFootnoteModal() {
+  footnoteModal.classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+async function streamFootnote(answerText) {
+  const prompt =
+    `Below is a scholarly answer about the Pearl-poet's works. ` +
+    `Reformat its key claims and citations as ready-to-use footnotes in all four academic styles: ` +
+    `MLA, Chicago (notes-bibliography), APA, and MHRA. ` +
+    `Present each style under a clear heading. Where line numbers are cited, retain them. ` +
+    `Use the standard edition: Andrew, Malcolm, and Ronald Waldron, eds. ` +
+    `*The Poems of the Pearl Manuscript*. University of Exeter Press, 2007.\n\n` +
+    `ANSWER:\n${answerText}`;
+
+  try {
+    const res = await fetch(WORKER_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: BASE_SYSTEM }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 900 },
+      }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let   full    = '';
+    let   started = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (const line of decoder.decode(value).split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const json = line.slice(6).trim();
+        if (!json || json === '[DONE]') continue;
+        try {
+          const chunk = JSON.parse(json);
+          full += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          modalText = full;
+          if (!started) { modalBody.innerHTML = '<div class="modal-content"></div>'; started = true; }
+          modalBody.querySelector('.modal-content').innerHTML = marked.parse(full);
+        } catch {}
+      }
+    }
+  } catch (err) {
+    modalBody.innerHTML = `<p style="color:var(--danger)">⚠ Error: ${escHtml(err.message)}</p>`;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -405,7 +571,7 @@ function toggleDark() {
 
 const FS_CYCLE = ['sm', 'md', 'lg'];
 function cycleFontSize() {
-  const cur = FS_CYCLE.find(f => document.body.classList.contains('fs-' + f)) || 'md';
+  const cur  = FS_CYCLE.find(f => document.body.classList.contains('fs-' + f)) || 'md';
   const next = FS_CYCLE[(FS_CYCLE.indexOf(cur) + 1) % FS_CYCLE.length];
   FS_CYCLE.forEach(f => document.body.classList.remove('fs-' + f));
   document.body.classList.add('fs-' + next);
@@ -435,9 +601,7 @@ function exportChat() {
   const md   = `# Pearl & Sir Gawain — Scholarly Q&A\n*Exported ${date}*\n\n---\n\n${lines.join('\n\n---\n\n')}`;
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), {
-    href: url, download: `pearl-gawain-qa-${Date.now()}.md`
-  });
+  const a    = Object.assign(document.createElement('a'), { href: url, download: `pearl-gawain-qa-${Date.now()}.md` });
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -468,14 +632,6 @@ function bindCitationBar() {
     btn.addEventListener('click', () => generateCitation(btn.dataset.style));
   });
 }
-
-const POEM_NAMES = {
-  all:      'Pearl and Sir Gawain and the Green Knight',
-  pearl:     'Pearl',
-  sggk:      'Sir Gawain and the Green Knight',
-  patience:  'Patience',
-  cleanness: 'Cleanness',
-};
 
 function generateCitation(style) {
   const poem = POEM_NAMES[scope];
