@@ -125,17 +125,12 @@ And I schal gyf hym þis gyfte and gryþe hym full nobly,
 };
 
 /* ── System prompt ────────────────────────────────────────── */
-// Words are now looked up via the embedded GLOSSARY — the LLM
-// handles only translation, prosody, and commentary.
+// Kept minimal — context only. The JSON schema lives in the
+// user message where Gemini always reads it, and the response
+// is prefilled with '{"translation":' so JSON is guaranteed.
 const DECODE_SYSTEM =
-  `You are an expert in Middle English philology specialising in the Pearl-poet and MS Cotton Nero A.x. ` +
-  `Respond ONLY with a valid JSON object — no preamble, no markdown fences. ` +
-  `Use exactly these three keys in this order:\n\n` +
-  `1. "translation": string — fluent, complete Modern English rendering of the whole passage.\n\n` +
-  `2. "commentary": string — 2-3 sentences of scholarly commentary (cite Andrew & Waldron 5th ed. or key critics).\n\n` +
-  `3. "prosody": array — one object per verse line: ` +
-  `{ "line": "<ME line exactly>", "pattern": "<alliterating sound e.g. aa/ax>", "note": "<one short sentence>" }\n\n` +
-  `Return only the JSON object.`;
+  `You are a Middle English philology expert specialising in the Pearl-poet ` +
+  `and MS Cotton Nero A.x. You respond only with raw JSON.`;
 
 /* ── State ────────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
@@ -146,13 +141,18 @@ let decoding    = false;
    SHARED WORKER HELPER
    (same request/response format as app.js)
    ══════════════════════════════════════════════════════════ */
-async function callWorker(systemPrompt, userMessage, maxTokens = 1200) {
+async function callWorker(systemPrompt, userMessage, maxTokens = 1200, prefill = '') {
+  // Build contents array; if prefill provided, add a partial model turn so
+  // Gemini MUST continue in JSON from that exact point.
+  const contents = [{ role: 'user', parts: [{ text: userMessage }] }];
+  if (prefill) contents.push({ role: 'model', parts: [{ text: prefill }] });
+
   const res = await fetch(WORKER_URL, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      contents,
       generationConfig: { maxOutputTokens: maxTokens },
     })
   });
@@ -164,7 +164,7 @@ async function callWorker(systemPrompt, userMessage, maxTokens = 1200) {
 
   const reader  = res.body.getReader();
   const decoder = new TextDecoder();
-  let fullText  = '';
+  let streamed  = '';
   let buffer    = '';
 
   const processLine = line => {
@@ -174,7 +174,7 @@ async function callWorker(systemPrompt, userMessage, maxTokens = 1200) {
     try {
       const chunk = JSON.parse(json);
       if (chunk.error) throw new Error(chunk.error.message || JSON.stringify(chunk.error));
-      fullText += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      streamed += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
     } catch (e) {
       if (e.message && !e.message.startsWith('JSON') && !e.message.startsWith('Unexpected')) throw e;
     }
@@ -182,21 +182,19 @@ async function callWorker(systemPrompt, userMessage, maxTokens = 1200) {
 
   while (true) {
     const { done, value } = await reader.read();
-
     if (done) {
-      // Flush any remaining decoder bytes and process the last buffer chunk
       buffer += decoder.decode();
       buffer.split('\n').forEach(processLine);
       break;
     }
-
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
     lines.forEach(processLine);
   }
 
-  return fullText;
+  // Prepend the prefill seed so the caller gets the full JSON string
+  return prefill + streamed;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -264,10 +262,19 @@ async function decode() {
       pearl: 'Pearl', sggk: 'Sir Gawain and the Green Knight',
       patience: 'Patience', cleanness: 'Cleanness'
     };
-    const userMessage =
-      `Decode this passage from ${poemNames[currentPoem] || 'the Pearl-poet'} (MS Cotton Nero A.x):\n\n${text}`;
 
-    const raw = await callWorker(DECODE_SYSTEM, userMessage, 1200);
+    // JSON schema lives in the user message (always read by Gemini).
+    // Response is prefilled with '{"translation":' — this forces JSON output.
+    const userMessage =
+      `Passage from ${poemNames[currentPoem] || 'the Pearl-poet'} (MS Cotton Nero A.x):\n\n${text}\n\n` +
+      `Reply with ONLY this JSON object (no text before or after, no markdown fences):\n` +
+      `{\n` +
+      `  "translation": "complete fluent Modern English rendering",\n` +
+      `  "commentary": "2-3 sentences of scholarly commentary citing Andrew & Waldron 5th ed.",\n` +
+      `  "prosody": [{"line":"<ME line>","pattern":"<e.g. aa/ax>","note":"<one sentence>"}]\n` +
+      `}`;
+
+    const raw = await callWorker(DECODE_SYSTEM, userMessage, 1200, '{"translation":');
     const data = parseJsonRobust(raw);
     if (!data) throw new Error('Could not parse model response');
 
