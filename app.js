@@ -6,7 +6,7 @@
 /* ── Configuration ────────────────────────────────────────
    Replace this URL with your deployed Cloudflare Worker URL
    ───────────────────────────────────────────────────────── */
-const WORKER_URL = 'https://medieval-qa.pages.dev/functions/api/ask';
+const WORKER_URL = '/api/ask';
 
 /* ── System prompts ───────────────────────────────────────── */
 const BASE_SYSTEM =
