@@ -266,7 +266,7 @@ function renderCharts(container) {
   const textColor = isDark ? '#f0e8dc' : '#261a10';
   const gridColor = isDark ? '#3d3028' : '#e2d9cc';
 
-  container.querySelectorAll('code.language-chart').forEach(codeEl => {
+  container.querySelectorAll('code.language-chart, code.language-json').forEach(codeEl => {
     try {
       const data   = JSON.parse(codeEl.textContent);
       const pre    = codeEl.closest('pre');
