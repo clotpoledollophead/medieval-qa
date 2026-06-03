@@ -333,7 +333,8 @@ async function fetchPapers(query) {
 
   try {
     const papers = JSON.parse(cleaned.slice(start, end + 1));
-    return Array.isArray(papers) ? papers : [];
+    if (!Array.isArray(papers)) return [];
+    return papers.sort((a, b) => (b.year || 0) - (a.year || 0));
   } catch {
     return [];
   }
