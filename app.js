@@ -10,8 +10,9 @@ const BASE_SYSTEM =
   `You are a scholarly assistant specialising in the works of the Pearl-poet ` +
   `(the anonymous 14th-century author of Pearl, Sir Gawain and the Green Knight, ` +
   `Patience, and Cleanness). Answer questions accurately and helpfully. ` +
-  `When quoting Middle English passages, include a brief Modern English translation ` +
-  `in parentheses. Keep answers clear and concise (at most 3-5 sentences) but avoid padding or preamble.`;
+  `When quoting Middle English passages, include a brief Modern English translation` +
+  `in parentheses. Keep answers clear and concise (at most 3-5 sentences) but avoid padding or preamble.` +
+  `Cite specific lines or scholarly sources for all claims, and provide line numbers for any quotations.`;
 
 const SCOPE_CONTEXT = {
   all:      'You may draw on all Pearl and Sir Gawain and the Green Knight.',
