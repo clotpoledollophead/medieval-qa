@@ -1,11 +1,12 @@
 /* ══════════════════════════════════════════════════════════
    research.js — Live Research Dashboard
-   Uses the same /api/ask worker as the Q&A tool (Gemini)
+   Uses OpenAlex API (openalex.org) — free, no key needed,
+   CORS-friendly, sorted publication_date:desc
    ══════════════════════════════════════════════════════════ */
 'use strict';
 
-const WORKER_URL  = '/api/ask';
-const CACHE_TTL   = 24 * 60 * 60 * 1000; // 24 hours
+const OPENALEX = 'https://api.openalex.org/works';
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 /* ── Category definitions ─────────────────────────────────── */
 const CATEGORIES = [
@@ -15,21 +16,12 @@ const CATEGORIES = [
     icon: '📜',
     color: 'var(--accent)',
     subcategories: [
-      {
-        id: 'paleography',
-        name: 'Paleography & Dating',
-        query: 'recent scholarship on Cotton Nero A.x manuscript paleography, scribal hand, and dating'
-      },
-      {
-        id: 'illuminations',
-        name: 'Illuminations',
-        query: 'scholarship on the illuminations and miniature paintings in Cotton Nero A.x'
-      },
-      {
-        id: 'provenance',
-        name: 'Provenance & Geography',
-        query: 'scholarship on the provenance and Northwest Midlands origin of Cotton Nero A.x'
-      }
+      { id: 'paleography', name: 'Paleography & Dating',
+        query: '"cotton nero" paleography manuscript scribal' },
+      { id: 'illuminations', name: 'Illuminations',
+        query: '"cotton nero" illuminations miniatures medieval artwork' },
+      { id: 'provenance', name: 'Provenance & Geography',
+        query: '"pearl poet" "cotton nero" provenance "northwest midlands"' }
     ]
   },
   {
@@ -38,16 +30,10 @@ const CATEGORIES = [
     icon: '⚗',
     color: 'var(--purple)',
     subcategories: [
-      {
-        id: 'biographical',
-        name: 'Biographical Theories',
-        query: 'biographical theories and proposed identities for the Pearl-poet author'
-      },
-      {
-        id: 'stylometry',
-        name: 'Computational Stylometry',
-        query: 'computational stylometry and authorship attribution studies of the Pearl-poet poems'
-      }
+      { id: 'biographical', name: 'Biographical Theories',
+        query: '"pearl poet" author identity biography attribution' },
+      { id: 'stylometry', name: 'Computational Stylometry',
+        query: '"pearl poet" OR "sir gawain" stylometry authorship computational' }
     ]
   },
   {
@@ -56,21 +42,12 @@ const CATEGORIES = [
     icon: 'ᚠ',
     color: 'var(--green)',
     subcategories: [
-      {
-        id: 'dialectology',
-        name: 'Dialectology',
-        query: 'dialectology and linguistic geography of the Pearl-poet Middle English dialect'
-      },
-      {
-        id: 'semantic',
-        name: 'Semantic Domains',
-        query: 'lexicography and semantic domain studies of Pearl-poet vocabulary and theological language'
-      },
-      {
-        id: 'prosody',
-        name: 'Sound Symbolism & Prosody',
-        query: 'alliterative verse prosody, sound symbolism, and phonetics in Pearl and Sir Gawain'
-      }
+      { id: 'dialectology', name: 'Dialectology',
+        query: '"pearl poet" OR "cotton nero" dialectology "middle english" dialect' },
+      { id: 'semantic', name: 'Semantic Domains',
+        query: '"pearl poet" lexicography semantic vocabulary "middle english"' },
+      { id: 'prosody', name: 'Sound Symbolism & Prosody',
+        query: '"pearl poet" OR "sir gawain" alliterative verse prosody phonetics' }
     ]
   },
   {
@@ -79,21 +56,12 @@ const CATEGORIES = [
     icon: '✦',
     color: 'var(--gold)',
     subcategories: [
-      {
-        id: 'theology',
-        name: 'Theology & Soteriology',
-        query: 'theological criticism, soteriology, and grace in Pearl, Sir Gawain, Patience, and Cleanness'
-      },
-      {
-        id: 'socio',
-        name: 'Socio-Historical Context',
-        query: 'socio-historical context, chivalry, and fourteenth-century English society in the Pearl-poet poems'
-      },
-      {
-        id: 'allegory',
-        name: 'Epistemology & Allegory',
-        query: 'allegory, dream vision, and epistemology in Pearl and Cleanness'
-      }
+      { id: 'theology', name: 'Theology & Soteriology',
+        query: '"pearl poem" OR "sir gawain" theology grace soteriology salvation medieval' },
+      { id: 'socio', name: 'Socio-Historical Context',
+        query: '"sir gawain" OR "pearl poet" historical context chivalry fourteenth century' },
+      { id: 'allegory', name: 'Epistemology & Allegory',
+        query: '"pearl poem" allegory "dream vision" epistemology medieval' }
     ]
   },
   {
@@ -102,97 +70,79 @@ const CATEGORIES = [
     icon: '◈',
     color: 'var(--clean)',
     subcategories: [
-      {
-        id: 'translation',
-        name: 'Translation Theory',
-        query: 'translation theory and practice of Sir Gawain and the Green Knight and Pearl into Modern English'
-      },
-      {
-        id: 'digitization',
-        name: 'Digitization',
-        query: 'digital humanities, manuscript digitization, and TEI encoding of Cotton Nero A.x'
-      }
+      { id: 'translation', name: 'Translation Theory',
+        query: '"sir gawain green knight" OR "pearl poem" translation modern english theory' },
+      { id: 'digitization', name: 'Digitization',
+        query: '"cotton nero" OR "pearl manuscript" digital humanities digitization TEI' }
     ]
   }
 ];
 
-/* ── System prompt ─────────────────────────────────────────── */
-const RESEARCH_SYSTEM =
-  `You are a bibliographer and research specialist in medieval Middle English literature, ` +
-  `focusing on the Pearl-poet and MS Cotton Nero A.x. ` +
-  `When asked for a list of scholarly articles or books on a topic, ` +
-  `respond ONLY with a valid JSON array (no preamble, no markdown fences, no commentary). ` +
-  `Each element must be an object with these exact keys: ` +
-  `"title" (string), "authors" (string), "year" (number), "journal" (string), ` +
-  `"abstract" (string — 1–2 sentences summarising the argument), "url" (string — DOI or publisher link if known, else ""). ` +
-  `Return up to 7 items. If year or url are unknown, use 0 and "" respectively. ` +
-  `Return only the JSON array.`;
-
 /* ── State ─────────────────────────────────────────────────── */
 const state = {};
-
-/* ── DOM helper ─────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
 
 /* ══════════════════════════════════════════════════════════
-   SHARED WORKER HELPER
-   (same request/response format as app.js)
+   OPENALEX FETCH
    ══════════════════════════════════════════════════════════ */
-async function callWorker(systemPrompt, userMessage, maxTokens = 1200) {
-  const res = await fetch(WORKER_URL, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-      generationConfig: { maxOutputTokens: maxTokens },
-    })
+async function fetchPapers(query) {
+  const params = new URLSearchParams({
+    search:   query,
+    sort:     'publication_date:desc',
+    per_page: '8',
+    select:   'title,authorships,publication_year,primary_location,abstract_inverted_index,doi,open_access,type'
   });
 
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  const res = await fetch(`${OPENALEX}?${params}`, {
+    headers: { 'Accept': 'application/json' }
+  });
 
-  const reader  = res.body.getReader();
-  const decoder = new TextDecoder();
-  let fullText  = '';
+  if (!res.ok) throw new Error(`OpenAlex ${res.status}: ${res.statusText}`);
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  const data = await res.json();
 
-    for (const line of decoder.decode(value).split('\n')) {
-      if (!line.startsWith('data: ')) continue;
-      const json = line.slice(6).trim();
-      if (!json || json === '[DONE]') continue;
-      try {
-        const chunk = JSON.parse(json);
-        if (chunk.error) throw new Error(chunk.error.message || JSON.stringify(chunk.error));
-        fullText += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } catch (e) { throw e; }
-    }
+  return (data.results || []).map(work => ({
+    title:    work.title || 'Untitled',
+    authors:  (work.authorships || [])
+                .slice(0, 3)
+                .map(a => a.author?.display_name)
+                .filter(Boolean)
+                .join(', '),
+    year:     work.publication_year || 0,
+    journal:  work.primary_location?.source?.display_name || '',
+    abstract: reconstructAbstract(work.abstract_inverted_index),
+    url:      work.open_access?.oa_url
+              || (work.doi ? `https://doi.org/${work.doi.replace('https://doi.org/', '')}` : '')
+              || work.primary_location?.landing_page_url
+              || ''
+  }));
+}
+
+/* Reconstruct OpenAlex inverted-index abstract */
+function reconstructAbstract(idx) {
+  if (!idx || typeof idx !== 'object') return '';
+  const words = [];
+  for (const [word, positions] of Object.entries(idx)) {
+    for (const pos of positions) words[pos] = word;
   }
-
-  return fullText;
+  const joined = words.filter(Boolean).join(' ');
+  return joined.length > 320 ? joined.slice(0, 320) + '…' : joined;
 }
 
 /* ══════════════════════════════════════════════════════════
-   INIT
+   INIT & PANELS
    ══════════════════════════════════════════════════════════ */
 function init() {
   renderCategoryPanels();
   bindRefreshAll();
 }
 
-/* ── Build all category panels ──────────────────────────────── */
 function renderCategoryPanels() {
   const root = $('categories-root');
   root.innerHTML = '';
 
   CATEGORIES.forEach(cat => {
-    state[cat.id] = {
-      papers:      {},
-      loadedAt:    null,
-      activeSubcat: cat.subcategories[0].id
-    };
+    state[cat.id] = { papers: {}, loadedAt: null, activeSubcat: cat.subcategories[0].id };
 
     const panel = document.createElement('div');
     panel.className = 'category-panel';
@@ -200,7 +150,7 @@ function renderCategoryPanels() {
 
     panel.innerHTML = `
       <div class="category-header" id="header-${cat.id}">
-        <div class="category-accent" style="background:${cat.color};"></div>
+        <div class="category-accent" style="background:${cat.color}"></div>
         <div class="category-icon">${cat.icon}</div>
         <div class="category-info">
           <div class="category-name">${escHtml(cat.name)}</div>
@@ -215,45 +165,41 @@ function renderCategoryPanels() {
       <div class="category-body" id="body-${cat.id}">
         <div class="subcategory-tabs" id="subtabs-${cat.id}">
           ${cat.subcategories.map((s, i) =>
-            `<button class="subcat-tab${i === 0 ? ' active' : ''}" data-subcat="${s.id}" data-cat="${cat.id}">${s.name}</button>`
+            `<button class="subcat-tab${i === 0 ? ' active' : ''}"
+               data-subcat="${s.id}" data-cat="${cat.id}">${s.name}</button>`
           ).join('')}
         </div>
         <div id="papers-area-${cat.id}">
-          <div class="papers-empty">Click "Load research" to fetch scholarship from Gemini.</div>
+          <div class="papers-empty">Click "Load research" to fetch live results from OpenAlex.</div>
         </div>
       </div>`;
 
     root.appendChild(panel);
 
-    panel.querySelector(`#header-${cat.id}`).addEventListener('click', e => {
+    panel.querySelector('#header-' + cat.id).addEventListener('click', e => {
       if (e.target.closest('.load-btn')) return;
       togglePanel(cat.id);
     });
 
-    panel.querySelector(`#load-btn-${cat.id}`).addEventListener('click', e => {
+    panel.querySelector('#load-btn-' + cat.id).addEventListener('click', e => {
       e.stopPropagation();
       loadCategory(cat.id);
     });
 
     panel.querySelectorAll('.subcat-tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        const catId    = tab.dataset.cat;
-        const subcatId = tab.dataset.subcat;
-        state[catId].activeSubcat = subcatId;
+        state[tab.dataset.cat].activeSubcat = tab.dataset.subcat;
         panel.querySelectorAll('.subcat-tab').forEach(t => t.classList.toggle('active', t === tab));
-        renderPapersArea(catId);
+        renderPapersArea(tab.dataset.cat);
       });
     });
   });
 }
 
 function togglePanel(catId) {
-  const header = $('header-' + catId);
-  const body   = $('body-'   + catId);
-  const isOpen = header.classList.contains('open');
-  header.classList.toggle('open',  !isOpen);
-  body.classList.toggle('open',    !isOpen);
-  $('panel-' + catId).classList.toggle('open', !isOpen);
+  const open = $('header-' + catId).classList.toggle('open');
+  $('body-'   + catId).classList.toggle('open', open);
+  $('panel-'  + catId).classList.toggle('open', open);
 }
 
 function openPanel(catId) {
@@ -263,12 +209,11 @@ function openPanel(catId) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   FETCH
+   LOAD A CATEGORY
    ══════════════════════════════════════════════════════════ */
 async function loadCategory(catId, forceRefresh = false) {
   const cat = CATEGORIES.find(c => c.id === catId);
 
-  // Check cache
   if (!forceRefresh) {
     const cached = loadFromCache(catId);
     if (cached) {
@@ -283,15 +228,16 @@ async function loadCategory(catId, forceRefresh = false) {
 
   openPanel(catId);
 
-  const loadBtn = $('load-btn-' + catId);
-  loadBtn.textContent = 'Loading…';
-  loadBtn.classList.add('loading');
+  const btn = $('load-btn-' + catId);
+  btn.textContent = 'Loading…';
+  btn.classList.add('loading');
   updateStatus(catId, '');
-
   $('papers-area-' + catId).innerHTML = `
     <div class="papers-loading">
-      <span class="thinking-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
-      Consulting the model…
+      <span class="thinking-dots">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      </span>
+      Fetching from OpenAlex…
     </div>`;
 
   const results = {};
@@ -308,36 +254,11 @@ async function loadCategory(catId, forceRefresh = false) {
   saveToCache(catId, { papers: results, loadedAt: state[catId].loadedAt });
 
   renderPapersArea(catId);
-  updateStatus(catId, '✓ loaded');
+  updateStatus(catId, `✓ ${Date.now() - state[catId].loadedAt < 500 ? 'live' : 'live'}`);
   updateLastUpdatedBadge();
 
-  loadBtn.textContent = 'Refresh';
-  loadBtn.classList.remove('loading');
-}
-
-async function fetchPapers(query) {
-  const userMessage =
-    `List notable and recent scholarly works (books, journal articles, book chapters) about: ` +
-    `"${query}" in relation to the Pearl-poet poems (Pearl, Sir Gawain and the Green Knight, ` +
-    `Patience, Cleanness) or MS Cotton Nero A.x. ` +
-    `Return up to 7 items as a JSON array only.`;
-
-  const raw = await callWorker(RESEARCH_SYSTEM, userMessage, 1200);
-
-  // Strip markdown fences if present
-  const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-
-  const start = cleaned.indexOf('[');
-  const end   = cleaned.lastIndexOf(']');
-  if (start === -1 || end === -1) return [];
-
-  try {
-    const papers = JSON.parse(cleaned.slice(start, end + 1));
-    if (!Array.isArray(papers)) return [];
-    return papers.sort((a, b) => (b.year || 0) - (a.year || 0));
-  } catch {
-    return [];
-  }
+  btn.textContent = 'Refresh';
+  btn.classList.remove('loading');
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -356,10 +277,9 @@ function renderPapersArea(catId) {
     return;
   }
   if (!data.length) {
-    area.innerHTML = '<div class="papers-empty">No results returned for this subcategory.</div>';
+    area.innerHTML = '<div class="papers-empty">No results found — try a different subcategory.</div>';
     return;
   }
-
   area.innerHTML = `<div class="papers-grid">${data.map(renderPaperCard).join('')}</div>`;
 }
 
@@ -371,17 +291,15 @@ function renderPaperCard(paper) {
   const abstract= escHtml(paper.abstract|| '');
   const url     = paper.url || '';
 
-  const titleHtml = url
-    ? `<a href="${escHtml(url)}" target="_blank" rel="noopener">${title}</a>`
-    : title;
-
   return `
     <div class="paper-card">
       <div class="paper-tags">
         ${year    ? `<span class="paper-tag year">${year}</span>` : ''}
-        ${journal ? `<span class="paper-tag">${journal.slice(0,40)}${journal.length>40?'…':''}</span>` : ''}
+        ${journal ? `<span class="paper-tag">${journal.length > 40 ? journal.slice(0,40)+'…' : journal}</span>` : ''}
       </div>
-      <div class="paper-title">${titleHtml}</div>
+      <div class="paper-title">
+        ${url ? `<a href="${escHtml(url)}" target="_blank" rel="noopener">${title}</a>` : title}
+      </div>
       ${authors  ? `<div class="paper-authors">${authors}</div>`   : ''}
       ${abstract ? `<div class="paper-abstract">${abstract}</div>` : ''}
       ${url      ? `<a class="paper-link" href="${escHtml(url)}" target="_blank" rel="noopener">View article ↗</a>` : ''}
@@ -389,26 +307,24 @@ function renderPaperCard(paper) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   CACHE (localStorage, 24 h TTL)
+   CACHE
    ══════════════════════════════════════════════════════════ */
-const cacheKey = id => `research_cache_${id}`;
+const cacheKey = id => `openalex_cache_${id}`;
 
 function saveToCache(catId, data) {
   try { localStorage.setItem(cacheKey(catId), JSON.stringify({ ...data, savedAt: Date.now() })); } catch {}
 }
 function loadFromCache(catId) {
   try {
-    const raw = localStorage.getItem(cacheKey(catId));
-    if (!raw) return null;
-    const p = JSON.parse(raw);
-    return (Date.now() - p.savedAt > CACHE_TTL) ? null : p;
+    const p = JSON.parse(localStorage.getItem(cacheKey(catId)) || 'null');
+    return p && (Date.now() - p.savedAt < CACHE_TTL) ? p : null;
   } catch { return null; }
 }
 function clearCache(catId) {
   try { localStorage.removeItem(cacheKey(catId)); } catch {}
 }
 
-/* ── Status ─────────────────────────────────────────────────── */
+/* ── Status helpers ─────────────────────────────────────────── */
 function updateStatus(catId, text) {
   const el = $('status-' + catId);
   if (el) { el.textContent = text; el.classList.toggle('loaded', text.startsWith('✓')); }
@@ -429,12 +345,10 @@ function bindRefreshAll() {
     btn.classList.add('spinning');
     btn.disabled = true;
     CATEGORIES.forEach(c => clearCache(c.id));
-    const openCats = CATEGORIES.filter(c => $('body-' + c.id)?.classList.contains('open'));
-    const toLoad   = openCats.length ? openCats : CATEGORIES;
-    await Promise.all(toLoad.map(c => loadCategory(c.id, true)));
+    const open = CATEGORIES.filter(c => $('body-' + c.id)?.classList.contains('open'));
+    await Promise.all((open.length ? open : CATEGORIES).map(c => loadCategory(c.id, true)));
     btn.classList.remove('spinning');
     btn.disabled = false;
-    updateLastUpdatedBadge();
   });
 }
 
