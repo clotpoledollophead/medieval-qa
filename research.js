@@ -1,25 +1,21 @@
 /* ══════════════════════════════════════════════════════════
    research.js — Live Research Dashboard
-   Uses OpenAlex API (openalex.org) — free, no key needed,
-   CORS-friendly, sorted publication_date:desc
+   Sources: OpenAlex · Semantic Scholar · CrossRef
+   All free, no API key, CORS-friendly, merged + deduped
    ══════════════════════════════════════════════════════════ */
 'use strict';
 
-const OPENALEX = 'https://api.openalex.org/works';
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_TTL = 24 * 60 * 60 * 1000;
 
-/* ── Mandatory anchor appended to every query ─────────────── */
-// Forces OpenAlex to only return results mentioning the manuscript
-// or one of the four poems by their scholarly names.
+/* ── Mandatory anchor for OpenAlex (supports boolean search) ─ */
 const ANCHOR =
   '("cotton nero" OR "pearl-poet" OR "pearl poet" OR ' +
   '"sir gawain and the green knight" OR "sir gawain green knight" OR ' +
   '"cleanness poem" OR "purity poem" OR "patience poem" OR ' +
   '"pearl poem" OR "pearl manuscript" OR "gawain poet")';
 
-/* ── Client-side relevance filter ────────────────────────────
-   Drop any paper whose title + abstract doesn't contain at least
-   one of these terms (catches edge-cases the ANCHOR query misses). */
+/* ── Client-side relevance filter (applied to all sources) ───
+   Drops anything whose title + abstract contains none of these. */
 const RELEVANCE_TERMS = [
   'cotton nero', 'pearl-poet', 'pearl poet', 'gawain poet',
   'sir gawain', 'green knight', 'pearl poem', 'the pearl',
@@ -31,62 +27,61 @@ const RELEVANCE_TERMS = [
 ];
 
 function isRelevant(paper) {
-  const haystack = `${paper.title} ${paper.abstract}`.toLowerCase();
-  return RELEVANCE_TERMS.some(t => haystack.includes(t));
+  const hay = `${paper.title} ${paper.abstract}`.toLowerCase();
+  return RELEVANCE_TERMS.some(t => hay.includes(t));
 }
 
+function normalizeTitle(t) {
+  return String(t).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60);
+}
 
 /* ── Category definitions ─────────────────────────────────── */
 const CATEGORIES = [
   {
     id: 'codicological',
     name: 'Material and Codicological Studies',
-    icon: '📜',
-    color: 'var(--accent)',
+    icon: '📜', color: 'var(--accent)',
     subcategories: [
-      { id: 'paleography', name: 'Paleography & Dating',
-        query: '"cotton nero" paleography manuscript scribal hand' },
+      { id: 'paleography',  name: 'Paleography & Dating',
+        query: '"cotton nero" paleography manuscript scribal hand dating' },
       { id: 'illuminations', name: 'Illuminations',
         query: '"cotton nero" illuminations miniatures paintings medieval' },
-      { id: 'provenance', name: 'Provenance & Geography',
+      { id: 'provenance',   name: 'Provenance & Geography',
         query: '"cotton nero" OR "pearl poet" provenance northwest midlands Cheshire' }
     ]
   },
   {
     id: 'authorship',
     name: 'Authorship Attribution & Computational Stylometry',
-    icon: '⚗',
-    color: 'var(--purple)',
+    icon: '⚗', color: 'var(--purple)',
     subcategories: [
       { id: 'biographical', name: 'Biographical Theories',
         query: '"pearl poet" OR "gawain poet" author identity biography' },
-      { id: 'stylometry', name: 'Computational Stylometry',
+      { id: 'stylometry',   name: 'Computational Stylometry',
         query: '"pearl poet" OR "gawain poet" stylometry authorship attribution computational' }
     ]
   },
   {
     id: 'philology',
     name: 'Philology, Lexicography & Linguistic Poetics',
-    icon: 'ᚠ',
-    color: 'var(--green)',
+    icon: 'ᚠ', color: 'var(--green)',
     subcategories: [
       { id: 'dialectology', name: 'Dialectology',
         query: '"pearl poet" OR "cotton nero" dialectology middle english dialect northwest' },
-      { id: 'semantic', name: 'Semantic Domains',
+      { id: 'semantic',     name: 'Semantic Domains',
         query: '"pearl poet" OR "pearl poem" lexicography semantic domains vocabulary' },
-      { id: 'prosody', name: 'Sound Symbolism & Prosody',
+      { id: 'prosody',      name: 'Sound Symbolism & Prosody',
         query: '"pearl poet" OR "sir gawain green knight" alliterative prosody sound symbolism' }
     ]
   },
   {
     id: 'criticism',
     name: 'Thematic, Theological & Literary Criticism',
-    icon: '✦',
-    color: 'var(--gold)',
+    icon: '✦', color: 'var(--gold)',
     subcategories: [
       { id: 'theology', name: 'Theology & Soteriology',
         query: '"pearl poem" OR "pearl poet" theology soteriology grace salvation' },
-      { id: 'socio', name: 'Socio-Historical Context',
+      { id: 'socio',    name: 'Socio-Historical Context',
         query: '"sir gawain green knight" OR "pearl poet" historical social context chivalry' },
       { id: 'allegory', name: 'Epistemology & Allegory',
         query: '"pearl poem" OR "pearl poet" allegory dream vision epistemology interpretation' }
@@ -95,10 +90,9 @@ const CATEGORIES = [
   {
     id: 'digital',
     name: 'Modern Reception, Translation & Digital Humanities',
-    icon: '◈',
-    color: 'var(--clean)',
+    icon: '◈', color: 'var(--clean)',
     subcategories: [
-      { id: 'translation', name: 'Translation Theory',
+      { id: 'translation',  name: 'Translation Theory',
         query: '"sir gawain green knight" OR "pearl poem" translation modern english reception' },
       { id: 'digitization', name: 'Digitization',
         query: '"cotton nero" OR "pearl manuscript" digital humanities digitization encoding' }
@@ -106,69 +100,164 @@ const CATEGORIES = [
   }
 ];
 
-/* ── State ─────────────────────────────────────────────────── */
-const state = {};
-const $ = id => document.getElementById(id);
-
 /* ══════════════════════════════════════════════════════════
-   OPENALEX FETCH
+   SOURCE 1 — OpenAlex
+   api.openalex.org · CORS ✓ · sorted by date ✓
    ══════════════════════════════════════════════════════════ */
-async function fetchPapers(query) {
-  // Append mandatory anchor so every result mentions the manuscript or a poem
+async function fetchFromOpenAlex(query) {
   const params = new URLSearchParams({
     search:   `${query} ${ANCHOR}`,
     sort:     'publication_date:desc',
-    per_page: '15',   // fetch extra so client-side filter still leaves enough
-    select:   'title,authorships,publication_year,primary_location,abstract_inverted_index,doi,open_access,type'
+    per_page: '10',
+    select:   'title,authorships,publication_year,primary_location,abstract_inverted_index,doi,open_access'
   });
 
-  const res = await fetch(`${OPENALEX}?${params}`, {
-    headers: { 'Accept': 'application/json' }
-  });
-
-  if (!res.ok) throw new Error(`OpenAlex ${res.status}: ${res.statusText}`);
+  const res = await fetch(`https://api.openalex.org/works?${params}`,
+    { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
 
   const data = await res.json();
-
-  const mapped = (data.results || []).map(work => ({
-    title:    work.title || 'Untitled',
-    authors:  (work.authorships || [])
-                .slice(0, 3)
-                .map(a => a.author?.display_name)
-                .filter(Boolean)
-                .join(', '),
-    year:     work.publication_year || 0,
-    journal:  work.primary_location?.source?.display_name || '',
-    abstract: reconstructAbstract(work.abstract_inverted_index),
-    url:      work.open_access?.oa_url
-              || (work.doi ? `https://doi.org/${work.doi.replace('https://doi.org/', '')}` : '')
-              || work.primary_location?.landing_page_url
-              || ''
+  return (data.results || []).map(w => ({
+    title:   w.title || '',
+    authors: (w.authorships || []).slice(0, 3)
+               .map(a => a.author?.display_name).filter(Boolean).join(', '),
+    year:    w.publication_year || 0,
+    journal: w.primary_location?.source?.display_name || '',
+    abstract: reconstructAbstract(w.abstract_inverted_index),
+    url:     w.open_access?.oa_url
+             || (w.doi ? `https://doi.org/${w.doi.replace('https://doi.org/', '')}` : '')
+             || '',
+    source: 'OpenAlex'
   }));
-
-  // Secondary client-side filter: drop anything with no recognisable poem/MS term
-  return mapped.filter(isRelevant).slice(0, 8);
 }
 
-/* Reconstruct OpenAlex inverted-index abstract */
 function reconstructAbstract(idx) {
   if (!idx || typeof idx !== 'object') return '';
   const words = [];
-  for (const [word, positions] of Object.entries(idx)) {
+  for (const [word, positions] of Object.entries(idx))
     for (const pos of positions) words[pos] = word;
-  }
-  const joined = words.filter(Boolean).join(' ');
-  return joined.length > 320 ? joined.slice(0, 320) + '…' : joined;
+  const text = words.filter(Boolean).join(' ');
+  return text.length > 320 ? text.slice(0, 320) + '…' : text;
 }
 
 /* ══════════════════════════════════════════════════════════
-   INIT & PANELS
+   SOURCE 2 — Semantic Scholar
+   api.semanticscholar.org · CORS ✓ · no key for basic use
    ══════════════════════════════════════════════════════════ */
+async function fetchFromSemantic(query) {
+  // Use a plain query (no ANCHOR boolean) — Semantic Scholar uses simple text search
+  const params = new URLSearchParams({
+    query:  query,
+    fields: 'title,authors,year,abstract,venue,externalIds,openAccessPdf',
+    limit:  '10'
+  });
+
+  const res = await fetch(
+    `https://api.semanticscholar.org/graph/v1/paper/search?${params}`,
+    { headers: { Accept: 'application/json' } }
+  );
+  if (!res.ok) throw new Error(`Semantic Scholar ${res.status}`);
+
+  const data = await res.json();
+  return (data.data || []).map(p => {
+    const doi = p.externalIds?.DOI || '';
+    return {
+      title:   p.title || '',
+      authors: (p.authors || []).slice(0, 3).map(a => a.name).filter(Boolean).join(', '),
+      year:    p.year || 0,
+      journal: p.venue || '',
+      abstract: p.abstract || '',
+      url:     p.openAccessPdf?.url
+               || (doi ? `https://doi.org/${doi}` : '')
+               || '',
+      source: 'Semantic Scholar'
+    };
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   SOURCE 3 — CrossRef
+   api.crossref.org · CORS ✓ · no key needed
+   ══════════════════════════════════════════════════════════ */
+async function fetchFromCrossRef(query) {
+  const params = new URLSearchParams({
+    query:           query,
+    sort:            'published',
+    order:           'desc',
+    rows:            '10',
+    select:          'title,author,published,container-title,abstract,DOI',
+    'filter':        'from-pub-date:1990'
+  });
+
+  const res = await fetch(`https://api.crossref.org/works?${params}`,
+    { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`CrossRef ${res.status}`);
+
+  const data = await res.json();
+  return (data.message?.items || []).map(item => {
+    const title   = Array.isArray(item.title) ? item.title[0] : (item.title || '');
+    const journal = Array.isArray(item['container-title'])
+                    ? item['container-title'][0]
+                    : (item['container-title'] || '');
+    const authors = (item.author || []).slice(0, 3)
+                    .map(a => [a.given, a.family].filter(Boolean).join(' '))
+                    .filter(Boolean).join(', ');
+    const year    = item.published?.['date-parts']?.[0]?.[0] || 0;
+    // CrossRef abstracts often contain JATS XML tags — strip them
+    const abstract = (item.abstract || '').replace(/<[^>]+>/g, '').trim();
+    const doi     = item.DOI || '';
+
+    return {
+      title, authors, year, journal,
+      abstract: abstract.length > 320 ? abstract.slice(0, 320) + '…' : abstract,
+      url:  doi ? `https://doi.org/${doi}` : '',
+      source: 'CrossRef'
+    };
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   MERGE + DEDUPLICATE + FILTER + SORT
+   ══════════════════════════════════════════════════════════ */
+async function fetchPapers(query) {
+  const settled = await Promise.allSettled([
+    fetchFromOpenAlex(query),
+    fetchFromSemantic(query),
+    fetchFromCrossRef(query)
+  ]);
+
+  const all = settled.flatMap(r =>
+    r.status === 'fulfilled' ? r.value : []
+  );
+
+  // Deduplicate by normalised title
+  const seen  = new Set();
+  const unique = all.filter(p => {
+    if (!p.title) return false;
+    const key = normalizeTitle(p.title);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return unique
+    .filter(isRelevant)
+    .sort((a, b) => (b.year || 0) - (a.year || 0))
+    .slice(0, 15);
+}
+
+/* ══════════════════════════════════════════════════════════
+   STATE & DOM
+   ══════════════════════════════════════════════════════════ */
+const state = {};
+const $ = id => document.getElementById(id);
+
 function init() {
   renderCategoryPanels();
   bindRefreshAll();
 }
 
+/* ── Build panels ────────────────────────────────────────── */
 function renderCategoryPanels() {
   const root = $('categories-root');
   root.innerHTML = '';
@@ -202,7 +291,7 @@ function renderCategoryPanels() {
           ).join('')}
         </div>
         <div id="papers-area-${cat.id}">
-          <div class="papers-empty">Click "Load research" to fetch live results from OpenAlex.</div>
+          <div class="papers-empty">Click "Load research" to fetch live results from OpenAlex, Semantic Scholar, and CrossRef.</div>
         </div>
       </div>`;
 
@@ -212,12 +301,10 @@ function renderCategoryPanels() {
       if (e.target.closest('.load-btn')) return;
       togglePanel(cat.id);
     });
-
     panel.querySelector('#load-btn-' + cat.id).addEventListener('click', e => {
       e.stopPropagation();
       loadCategory(cat.id);
     });
-
     panel.querySelectorAll('.subcat-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         state[tab.dataset.cat].activeSubcat = tab.dataset.subcat;
@@ -230,19 +317,15 @@ function renderCategoryPanels() {
 
 function togglePanel(catId) {
   const open = $('header-' + catId).classList.toggle('open');
-  $('body-'   + catId).classList.toggle('open', open);
-  $('panel-'  + catId).classList.toggle('open', open);
+  $('body-'  + catId).classList.toggle('open', open);
+  $('panel-' + catId).classList.toggle('open', open);
 }
-
 function openPanel(catId) {
-  $('header-' + catId).classList.add('open');
-  $('body-'   + catId).classList.add('open');
-  $('panel-'  + catId).classList.add('open');
+  ['header-', 'body-', 'panel-'].forEach(p =>
+    $(p + catId).classList.add('open'));
 }
 
-/* ══════════════════════════════════════════════════════════
-   LOAD A CATEGORY
-   ══════════════════════════════════════════════════════════ */
+/* ── Load a category ─────────────────────────────────────── */
 async function loadCategory(catId, forceRefresh = false) {
   const cat = CATEGORIES.find(c => c.id === catId);
 
@@ -259,26 +342,23 @@ async function loadCategory(catId, forceRefresh = false) {
   }
 
   openPanel(catId);
-
   const btn = $('load-btn-' + catId);
   btn.textContent = 'Loading…';
   btn.classList.add('loading');
   updateStatus(catId, '');
+
   $('papers-area-' + catId).innerHTML = `
     <div class="papers-loading">
       <span class="thinking-dots">
         <span class="dot"></span><span class="dot"></span><span class="dot"></span>
       </span>
-      Fetching from OpenAlex…
+      Fetching from OpenAlex · Semantic Scholar · CrossRef…
     </div>`;
 
   const results = {};
   await Promise.all(cat.subcategories.map(async subcat => {
-    try {
-      results[subcat.id] = await fetchPapers(subcat.query);
-    } catch (err) {
-      results[subcat.id] = { error: err.message };
-    }
+    try   { results[subcat.id] = await fetchPapers(subcat.query); }
+    catch (err) { results[subcat.id] = { error: err.message }; }
   }));
 
   state[catId].papers   = results;
@@ -286,34 +366,28 @@ async function loadCategory(catId, forceRefresh = false) {
   saveToCache(catId, { papers: results, loadedAt: state[catId].loadedAt });
 
   renderPapersArea(catId);
-  updateStatus(catId, `✓ ${Date.now() - state[catId].loadedAt < 500 ? 'live' : 'live'}`);
+  updateStatus(catId, '✓ live');
   updateLastUpdatedBadge();
-
   btn.textContent = 'Refresh';
   btn.classList.remove('loading');
 }
 
-/* ══════════════════════════════════════════════════════════
-   RENDER
-   ══════════════════════════════════════════════════════════ */
+/* ── Render ──────────────────────────────────────────────── */
 function renderPapersArea(catId) {
   const data = state[catId].papers[state[catId].activeSubcat];
   const area = $('papers-area-' + catId);
-
-  if (!data) {
-    area.innerHTML = '<div class="papers-empty">No data loaded yet.</div>';
-    return;
-  }
-  if (data.error) {
-    area.innerHTML = `<div class="paper-error">⚠ ${escHtml(data.error)}</div>`;
-    return;
-  }
-  if (!data.length) {
-    area.innerHTML = '<div class="papers-empty">No results found — try a different subcategory.</div>';
-    return;
-  }
+  if (!data)        { area.innerHTML = '<div class="papers-empty">No data loaded yet.</div>'; return; }
+  if (data.error)   { area.innerHTML = `<div class="paper-error">⚠ ${escHtml(data.error)}</div>`; return; }
+  if (!data.length) { area.innerHTML = '<div class="papers-empty">No results found — try a different subcategory.</div>'; return; }
   area.innerHTML = `<div class="papers-grid">${data.map(renderPaperCard).join('')}</div>`;
 }
+
+/* Source badge colours */
+const SOURCE_COLORS = {
+  'OpenAlex':        { bg: 'var(--accent-l)',   text: 'var(--accent)'   },
+  'Semantic Scholar':{ bg: 'var(--purple-l)',    text: 'var(--purple)'   },
+  'CrossRef':        { bg: 'var(--green-l)',     text: 'var(--green)'    },
+};
 
 function renderPaperCard(paper) {
   const title   = escHtml(paper.title   || 'Untitled');
@@ -322,12 +396,15 @@ function renderPaperCard(paper) {
   const journal = escHtml(paper.journal || '');
   const abstract= escHtml(paper.abstract|| '');
   const url     = paper.url || '';
+  const src     = paper.source || '';
+  const srcCol  = SOURCE_COLORS[src] || { bg: 'var(--surface-2)', text: 'var(--muted)' };
 
   return `
     <div class="paper-card">
       <div class="paper-tags">
-        ${year    ? `<span class="paper-tag year">${year}</span>` : ''}
-        ${journal ? `<span class="paper-tag">${journal.length > 40 ? journal.slice(0,40)+'…' : journal}</span>` : ''}
+        ${year ? `<span class="paper-tag year">${year}</span>` : ''}
+        ${src  ? `<span class="paper-tag" style="background:${srcCol.bg};color:${srcCol.text};border-color:${srcCol.bg}">${src}</span>` : ''}
+        ${journal ? `<span class="paper-tag">${journal.length > 36 ? journal.slice(0,36)+'…' : journal}</span>` : ''}
       </div>
       <div class="paper-title">
         ${url ? `<a href="${escHtml(url)}" target="_blank" rel="noopener">${title}</a>` : title}
@@ -341,7 +418,7 @@ function renderPaperCard(paper) {
 /* ══════════════════════════════════════════════════════════
    CACHE
    ══════════════════════════════════════════════════════════ */
-const cacheKey = id => `openalex_cache_${id}`;
+const cacheKey = id => `research_multi_${id}`;
 
 function saveToCache(catId, data) {
   try { localStorage.setItem(cacheKey(catId), JSON.stringify({ ...data, savedAt: Date.now() })); } catch {}
@@ -356,35 +433,32 @@ function clearCache(catId) {
   try { localStorage.removeItem(cacheKey(catId)); } catch {}
 }
 
-/* ── Status helpers ─────────────────────────────────────────── */
+/* ── Status ──────────────────────────────────────────────── */
 function updateStatus(catId, text) {
   const el = $('status-' + catId);
   if (el) { el.textContent = text; el.classList.toggle('loaded', text.startsWith('✓')); }
 }
-
 function updateLastUpdatedBadge() {
   const times = CATEGORIES.map(c => state[c.id]?.loadedAt).filter(Boolean);
   if (!times.length) return;
   const d = new Date(Math.max(...times));
   $('last-updated-badge').textContent =
-    `Last updated: ${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}`;
+    `Last updated: ${d.toLocaleDateString()} ${d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
 }
 
-/* ── Refresh all ─────────────────────────────────────────────── */
+/* ── Refresh all ─────────────────────────────────────────── */
 function bindRefreshAll() {
   const btn = $('refresh-all-btn');
   btn.addEventListener('click', async () => {
-    btn.classList.add('spinning');
-    btn.disabled = true;
+    btn.classList.add('spinning'); btn.disabled = true;
     CATEGORIES.forEach(c => clearCache(c.id));
     const open = CATEGORIES.filter(c => $('body-' + c.id)?.classList.contains('open'));
     await Promise.all((open.length ? open : CATEGORIES).map(c => loadCategory(c.id, true)));
-    btn.classList.remove('spinning');
-    btn.disabled = false;
+    btn.classList.remove('spinning'); btn.disabled = false;
   });
 }
 
-/* ── Utils ──────────────────────────────────────────────────── */
+/* ── Utils ───────────────────────────────────────────────── */
 function escHtml(t) {
   return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
