@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verse Decoder — Cotton Nero A.x</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body class="fs-md">
+
+<!-- ── Site Navigation ── -->
+<nav class="site-nav">
+  <div class="site-nav-inner">
+    <a href="index.html" class="nav-brand">
+      Pearl-Poet Hub
+      <span class="nav-brand-ms">MS Cotton Nero A.x</span>
+    </a>
+    <div class="nav-links">
+      <a href="index.html"   class="nav-link"><span class="nav-icon">⌂</span> <span>Home</span></a>
+      <a href="qa.html"      class="nav-link"><span class="nav-icon">✦</span> <span>Scholar Q&amp;A</span></a>
+      <a href="research.html"class="nav-link"><span class="nav-icon">◉</span> <span>Research</span></a>
+      <a href="explore.html" class="nav-link"><span class="nav-icon">ᚠ</span> <span>Verse Decoder</span></a>
+      <button id="nav-dark-btn" class="nav-dark-btn">☾ Dark</button>
+    </div>
+  </div>
+</nav>
+<div class="page-top-bar"></div>
+
+<div class="explore-container">
+
+  <!-- ── Header ── -->
+  <div class="explore-header">
+    <div class="ornament" style="color:var(--accent);font-size:13px;letter-spacing:8px;margin-bottom:12px;">✦ ✦ ✦</div>
+    <h1>Verse Decoder</h1>
+    <p>Select a pre-loaded passage or paste your own Middle English text. The decoder produces a word-by-word gloss, modern translation, alliteration map, and scholarly commentary.</p>
+  </div>
+
+  <!-- ── Input panel ── -->
+  <div class="decode-input-panel">
+    <div class="decode-panel-header">
+      <span class="decode-panel-title">Select or paste a passage</span>
+      <span id="passage-poem-label" style="font-family:var(--sans);font-size:11px;color:var(--muted);"></span>
+    </div>
+
+    <div class="passage-selector-row">
+      <label style="font-family:var(--sans);font-size:12px;color:var(--muted);flex-shrink:0;">Poem:</label>
+      <select class="passage-select" id="poem-select">
+        <option value="pearl">Pearl</option>
+        <option value="sggk">Sir Gawain and the Green Knight</option>
+        <option value="patience">Patience</option>
+        <option value="cleanness">Cleanness</option>
+      </select>
+      <label style="font-family:var(--sans);font-size:12px;color:var(--muted);flex-shrink:0;">Passage:</label>
+      <select class="passage-select" id="passage-select" style="flex:1;min-width:180px;">
+      </select>
+    </div>
+
+    <div class="passage-textarea-wrap">
+      <label class="passage-textarea-label" for="passage-input">Middle English text (edit freely):</label>
+      <textarea id="passage-input" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+    </div>
+
+    <div class="decode-actions">
+      <span class="decode-hint">Paste any passage from the manuscript — Thorn (þ) and Yogh (ȝ) are welcome.</span>
+      <button id="decode-btn">Decode ᚠ</button>
+    </div>
+  </div>
+
+  <!-- ── Loading ── -->
+  <div class="decode-loading" id="decode-loading">
+    <span class="thinking-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+    Consulting the glossary…
+  </div>
+
+  <!-- ── Results ── -->
+  <div class="decode-results" id="decode-results">
+
+    <!-- Side-by-side -->
+    <div class="result-section">
+      <div class="result-section-header">
+        <div class="result-section-title">ᚠ Text &amp; Translation</div>
+        <button class="action-btn" id="copy-translation-btn">⎘ Copy translation</button>
+      </div>
+      <div class="result-section-body">
+        <div class="side-by-side">
+          <div>
+            <div class="text-col-label">Middle English</div>
+            <div class="me-text" id="me-display"></div>
+          </div>
+          <div>
+            <div class="text-col-label">Modern English</div>
+            <div class="mod-text" id="mod-display"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Word glossary -->
+    <div class="result-section">
+      <div class="result-section-header">
+        <div class="result-section-title">✦ Word Glossary</div>
+        <span style="font-family:var(--sans);font-size:11px;color:var(--muted);" id="word-count-label"></span>
+      </div>
+      <div class="result-section-body" style="padding:0;overflow-x:auto;">
+        <table class="gloss-table">
+          <thead>
+            <tr>
+              <th>Middle English</th>
+              <th>Phonetic</th>
+              <th>Modern English</th>
+              <th>Grammatical note</th>
+            </tr>
+          </thead>
+          <tbody id="gloss-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Prosody -->
+    <div class="result-section">
+      <div class="result-section-header">
+        <div class="result-section-title">◉ Alliteration &amp; Prosody</div>
+      </div>
+      <div class="result-section-body">
+        <div class="prosody-list" id="prosody-list"></div>
+      </div>
+    </div>
+
+    <!-- Commentary -->
+    <div class="result-section">
+      <div class="result-section-header">
+        <div class="result-section-title">📜 Scholarly Commentary</div>
+      </div>
+      <div class="result-section-body">
+        <div class="commentary-text" id="commentary-text"></div>
+      </div>
+    </div>
+
+  </div><!-- /decode-results -->
+
+</div><!-- /explore-container -->
+
+<script src="nav.js"></script>
+<script src="explore.js"></script>
+</body>
+</html>

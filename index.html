@@ -3,133 +3,168 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Medieval Q&A</title>
+  <title>Cotton Nero A.x — Pearl-Poet Scholarly Hub</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
 </head>
 <body class="fs-md">
 
-<div id="app">
+<!-- ── Site Navigation ── -->
+<nav class="site-nav">
+  <div class="site-nav-inner">
+    <a href="index.html" class="nav-brand">
+      Pearl-Poet Hub
+      <span class="nav-brand-ms">MS Cotton Nero A.x</span>
+    </a>
+    <div class="nav-links">
+      <a href="index.html"   class="nav-link"><span class="nav-icon">⌂</span> <span>Home</span></a>
+      <a href="qa.html"      class="nav-link"><span class="nav-icon">✦</span> <span>Scholar Q&amp;A</span></a>
+      <a href="research.html"class="nav-link"><span class="nav-icon">◉</span> <span>Research</span></a>
+      <a href="explore.html" class="nav-link"><span class="nav-icon">ᚠ</span> <span>Verse Decoder</span></a>
+      <button id="nav-dark-btn" class="nav-dark-btn">☾ Dark</button>
+    </div>
+  </div>
+</nav>
+<div class="page-top-bar"></div>
 
-  <div class="top-bar"></div>
+<div class="home-container">
 
-  <!-- ── Toolbar ── -->
-  <div class="toolbar">
-    <div class="toolbar-inner">
-      <div class="toolbar-left">
-        <span class="tool-label">Pearl-Poet Scholar</span>
+  <!-- ── Hero ── -->
+  <div class="home-hero">
+    <div class="ornament">✦ ✦ ✦</div>
+    <span class="ms-tag">British Library · MS Cotton Nero A.x · c. 1400</span>
+    <h1>Four poems.<br><em>One anonymous genius.</em></h1>
+    <p class="lead">
+      The Cotton Nero A.x manuscript preserves the four masterworks of an unnamed
+      fourteenth-century poet writing in the North West Midlands dialect of Middle English —
+      among the finest verse of the medieval period.
+    </p>
+    <p class="edition-note">All tools cite the standard edition: Andrew &amp; Waldron, <em>The Poems of the Pearl Manuscript</em>, 5th ed., University of Exeter Press, 2007.</p>
+  </div>
+
+  <!-- ── Poems ── -->
+  <div class="home-section-label">The Four Poems</div>
+  <div class="poem-grid">
+
+    <a class="poem-card" data-poem="pearl" href="qa.html?poem=pearl">
+      <div class="poem-card-top">
+        <span class="poem-card-num">Pearl · 1,212 lines</span>
+        <div class="poem-card-title">Pearl</div>
+        <div class="poem-card-lines">12-line stanza · concatenation · refrain</div>
+        <p class="poem-card-desc">A grieving narrator falls asleep over a grave and enters a dream-vision in which he encounters a radiant Pearl-maiden — his lost daughter — who guides him toward a vision of the New Jerusalem and the nature of divine grace.</p>
       </div>
-      <div class="toolbar-right">
-        <button id="font-btn"          class="tool-btn" title="Cycle font size">Aa</button>
-        <button id="dark-btn"          class="tool-btn" title="Toggle dark mode">☾ Dark</button>
-        <button id="bookmark-view-btn" class="tool-btn" title="View saved answers">★ Saved <span id="bookmark-count" class="badge hidden">0</span></button>
-        <button id="export-btn"        class="tool-btn" title="Export conversation as Markdown">↓ Export</button>
-        <button id="clear-btn"         class="tool-btn" title="Clear conversation">✕ Clear</button>
+      <div class="poem-card-excerpt">
+        <span class="excerpt-line">Perle, plesaunte to prynces paye</span>
+        <span class="excerpt-line">To clanly clos in golde so clere:</span>
+        <span class="excerpt-line">Oute of oryent, I hardyly saye,</span>
+        <span class="excerpt-line">Ne proved I never her precios pere.</span>
       </div>
+    </a>
+
+    <a class="poem-card" data-poem="sggk" href="qa.html?poem=sggk">
+      <div class="poem-card-top">
+        <span class="poem-card-num">Sir Gawain · 2,530 lines</span>
+        <div class="poem-card-title">Sir Gawain and the Green Knight</div>
+        <div class="poem-card-lines">Alliterative verse · bob-and-wheel stanza</div>
+        <p class="poem-card-desc">King Arthur's court receives a monstrous Green Knight who issues a beheading challenge. Gawain accepts, setting in motion a year-long test of courage, loyalty, and chastity that culminates at the mysterious Green Chapel.</p>
+      </div>
+      <div class="poem-card-excerpt">
+        <span class="excerpt-line">SIÞEN þe sege and þe assaut watz sesed at Troye,</span>
+        <span class="excerpt-line">Þe borȝ brittened and brent to brondez and askez,</span>
+        <span class="excerpt-line">Þe tulk þat þe trammes of tresoun þer wroȝt</span>
+        <span class="excerpt-line">Watz tried for his tricherie, þe trewest on erþe.</span>
+      </div>
+    </a>
+
+    <a class="poem-card" data-poem="patience" href="qa.html?poem=patience">
+      <div class="poem-card-top">
+        <span class="poem-card-num">Patience · 531 lines</span>
+        <div class="poem-card-title">Patience</div>
+        <div class="poem-card-lines">Unrhymed alliterative verse</div>
+        <p class="poem-card-desc">A retelling of the Book of Jonah, framed by the Beatitudes. Jonah's comic reluctance to obey God's command to preach at Nineveh becomes a meditation on patience, divine mercy, and the dangers of spiritual wilfulness.</p>
+      </div>
+      <div class="poem-card-excerpt">
+        <span class="excerpt-line">Jonas toward port Tarce prestly he rynnez;</span>
+        <span class="excerpt-line">He fonde þer a fayr schyp to þe fare redy,</span>
+        <span class="excerpt-line">Maches hym with þe maryneres, makes her paye</span>
+        <span class="excerpt-line">For to tow hym into Tarce as tyd as þay myȝt.</span>
+      </div>
+    </a>
+
+    <a class="poem-card" data-poem="cleanness" href="qa.html?poem=cleanness">
+      <div class="poem-card-top">
+        <span class="poem-card-num">Cleanness · 1,812 lines</span>
+        <div class="poem-card-title">Cleanness</div>
+        <div class="poem-card-lines">Alliterative homily · three biblical episodes</div>
+        <p class="poem-card-desc">An alliterative homily drawing on the Flood, Sodom and Gomorrah, and Belshazzar's Feast to argue that moral and spiritual purity is the quality God most demands — and its violation the one he most severely punishes.</p>
+      </div>
+      <div class="poem-card-excerpt">
+        <span class="excerpt-line">Clannesse who-so kyndly cowþe comende,</span>
+        <span class="excerpt-line">And rekken vp alle þe resounz þat ho by ryȝt askez,</span>
+        <span class="excerpt-line">Fayre formez myȝt he fynde in forþering his speche,</span>
+        <span class="excerpt-line">And in þe contraré carpe and comfort perchance.</span>
+      </div>
+    </a>
+
+  </div><!-- /poem-grid -->
+
+  <!-- ── Tools ── -->
+  <div class="home-section-label">Scholarly Tools</div>
+  <div class="tool-grid">
+
+    <a class="tool-card" href="qa.html">
+      <span class="tool-card-icon">✦</span>
+      <div class="tool-card-title">Scholar Q&amp;A</div>
+      <p class="tool-card-desc">Ask questions about any of the four poems. Receive answers grounded in the original Middle English, with quotations, line references, and bibliographic citations.</p>
+      <span class="tool-card-arrow">Open Q&A →</span>
+    </a>
+
+    <a class="tool-card" href="research.html">
+      <span class="tool-card-icon">◉</span>
+      <div class="tool-card-title">Research Dashboard</div>
+      <p class="tool-card-desc">Live feed of recent scholarship on Cotton Nero A.x, organised into five research clusters — from codicology to digital humanities. Refreshed from live sources.</p>
+      <span class="tool-card-arrow">Browse research →</span>
+    </a>
+
+    <a class="tool-card" href="explore.html">
+      <span class="tool-card-icon">ᚠ</span>
+      <div class="tool-card-title">Verse Decoder</div>
+      <p class="tool-card-desc">Select or paste any Middle English passage. The decoder produces a word-by-word gloss, modern translation, alliteration analysis, and scholarly commentary.</p>
+      <span class="tool-card-arrow">Decode a passage →</span>
+    </a>
+
+  </div>
+
+  <!-- ── About ── -->
+  <div class="home-section-label">About the Manuscript</div>
+  <div class="about-grid">
+    <div class="about-block">
+      <h3>The Manuscript</h3>
+      <p>British Library MS Cotton Nero A.x (Art.3) is a small vellum codex containing the unique surviving copies of all four poems, along with twelve illustrations added at a later date. It is named after the antiquary Sir Robert Cotton (1571–1631), whose library preserved it.</p>
+      <p>The manuscript is written in a single Cheshire dialect hand, dated by paleographers to approximately 1400, suggesting it was copied within a generation of composition.</p>
+    </div>
+    <div class="about-block">
+      <h3>The Poet</h3>
+      <p>The author remains anonymous. No contemporary document names the Pearl-poet; the attribution of all four poems to a single hand rests on shared dialect, shared metrical habits, shared theological vocabulary, and shared narrative techniques — an argument buttressed since the 1990s by computational stylometry.</p>
+      <p>Proposed identifications include John de Mascy of Sale, John Donne of Mollington, and Huchown of the Awle Ryale, but none has achieved scholarly consensus.</p>
+    </div>
+    <div class="about-block">
+      <h3>The Dialect</h3>
+      <p>The language of the manuscript has been precisely located by dialectologists to a small area of the North West Midlands, likely in south Cheshire or north Staffordshire — a region characterised by a distinctive blend of West Midland and Northern features.</p>
+      <p>Key features include the use of <em>ȝ</em> (yogh) for certain sounds, <em>þ</em> (thorn) throughout, and a distinctive vocabulary including words shared with Norse and French.</p>
+    </div>
+    <div class="about-block">
+      <h3>Critical History</h3>
+      <p>The poems were almost entirely unknown until the nineteenth century. <em>Sir Gawain</em> was first edited by Frederic Madden in 1839; <em>Pearl</em> by Richard Morris in 1864. The twentieth century saw an explosion of scholarship, with the debates over authorship, theology, and structure still unresolved.</p>
+      <p>J.R.R. Tolkien's influential 1925 <em>Sir Gawain</em> edition (with E.V. Gordon) and his 1975 translation of all three minor poems remain touchstones of the field.</p>
     </div>
   </div>
 
-  <div class="container">
+</div><!-- /home-container -->
 
-    <!-- ── Header ── -->
-    <header class="site-header">
-      <div class="ornament">✦ ✦ ✦</div>
-      <h1>Medieval Q&A — Cotton Nero A.x</h1>
-      <p class="subtitle">A scholarly text Q&amp;A — answers grounded in the original Middle English</p>
-    </header>
-
-    <!-- ── Scope tabs ── -->
-    <div class="tabs" id="tabs">
-      <button class="tab active" data-scope="all">All poems</button>
-      <button class="tab"        data-scope="pearl">Pearl</button>
-      <button class="tab"        data-scope="sggk">Sir Gawain</button>
-      <button class="tab"        data-scope="patience">Patience</button>
-      <button class="tab"        data-scope="cleanness">Cleanness</button>
-    </div>
-
-    <!-- ── Suggestion chips ── -->
-    <div class="suggestions-wrapper">
-      <div class="suggestions" id="suggestions">
-        <button class="sug" data-scope="pearl">What is the dreamer's emotional arc in Pearl?</button>
-        <button class="sug" data-scope="sggk">Describe the beheading game</button>
-        <button class="sug" data-scope="patience">How does Jonah's story unfold in Patience?</button>
-        <button class="sug" data-scope="cleanness">How does Cleanness define spiritual purity?</button>
-      </div>
-    </div>
-
-    <!-- ── Ornamental divider ── -->
-    <div class="divider"><span>✦</span></div>
-
-    <!-- ── Chat view ── -->
-    <div id="chat-view">
-      <div class="messages" id="messages">
-        <div class="empty">Your answers will appear here</div>
-      </div>
-    </div>
-
-    <!-- ── Bookmarks view ── -->
-    <div id="bookmarks-view" class="hidden">
-      <div class="view-header">
-        <h2>★ Saved Answers</h2>
-        <button id="back-btn" class="tool-btn">← Back to chat</button>
-      </div>
-      <div class="messages" id="bookmarks-list">
-        <div class="empty">No saved answers yet. Click ☆ on any response to save it here.</div>
-      </div>
-    </div>
-
-    <!-- ── Input area ── -->
-    <div class="input-wrap">
-      <div class="input-row">
-        <textarea id="question" placeholder="Ask about the poems…" rows="1"></textarea>
-        <button id="send-btn" disabled>Ask ↗</button>
-      </div>
-      <div class="input-meta">
-        <span id="char-count" class="char-count">0 / 600</span>
-        <span id="status-text" class="status-text"></span>
-      </div>
-    </div>
-
-    <!-- ── Citation helper ── -->
-    <div class="cite-bar">
-      <span class="cite-label">Generate citation:</span>
-      <button class="cite-btn" data-style="MLA">MLA</button>
-      <button class="cite-btn" data-style="Chicago">Chicago</button>
-      <button class="cite-btn" data-style="APA">APA</button>
-      <button class="cite-btn" data-style="MHRA">MHRA</button>
-    </div>
-
-  </div><!-- /container -->
-</div><!-- /app -->
-
-<!-- ── Footnote modal ── -->
-<div id="footnote-modal" class="modal-overlay hidden">
-  <div class="modal">
-    <div class="modal-top-bar"></div>
-    <div class="modal-header">
-      <div class="modal-header-left">
-        <div class="modal-ornament">✦ ✦ ✦</div>
-        <div class="modal-title">¶ Footnote Formats</div>
-        <div class="modal-subtitle">Andrew &amp; Waldron edition · Four citation styles</div>
-      </div>
-      <button id="modal-close" class="modal-close" title="Close">✕</button>
-    </div>
-    <div id="modal-body" class="modal-body">
-      <div class="modal-loading">
-        Generating footnotes<span class="thinking-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <span class="modal-footer-note">Click any card's copy button to copy that style</span>
-      <button id="modal-copy" class="tool-btn">⎘ Copy all</button>
-    </div>
-  </div>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="app.js"></script>
+<script src="nav.js"></script>
 </body>
 </html>

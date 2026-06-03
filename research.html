@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Research Dashboard — Cotton Nero A.x</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body class="fs-md">
+
+<!-- ── Site Navigation ── -->
+<nav class="site-nav">
+  <div class="site-nav-inner">
+    <a href="index.html" class="nav-brand">
+      Pearl-Poet Hub
+      <span class="nav-brand-ms">MS Cotton Nero A.x</span>
+    </a>
+    <div class="nav-links">
+      <a href="index.html"   class="nav-link"><span class="nav-icon">⌂</span> <span>Home</span></a>
+      <a href="qa.html"      class="nav-link"><span class="nav-icon">✦</span> <span>Scholar Q&amp;A</span></a>
+      <a href="research.html"class="nav-link"><span class="nav-icon">◉</span> <span>Research</span></a>
+      <a href="explore.html" class="nav-link"><span class="nav-icon">ᚠ</span> <span>Verse Decoder</span></a>
+      <button id="nav-dark-btn" class="nav-dark-btn">☾ Dark</button>
+    </div>
+  </div>
+</nav>
+<div class="page-top-bar"></div>
+
+<div class="research-container">
+
+  <!-- ── Header ── -->
+  <div class="research-header">
+    <div class="ornament" style="color:var(--accent);font-size:13px;letter-spacing:8px;margin-bottom:12px;">✦ ✦ ✦</div>
+    <h1>Research Dashboard</h1>
+    <p>Live scholarship on the Cotton Nero A.x manuscript and the Pearl-poet, organised by research cluster. Results are fetched via live search and cached for 24 hours.</p>
+    <div class="research-meta-bar">
+      <span class="research-badge" id="last-updated-badge">Not yet loaded</span>
+      <button class="research-refresh-btn" id="refresh-all-btn">
+        <span class="refresh-icon">↺</span> Refresh all
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Category panels ── -->
+  <div id="categories-root"></div>
+
+</div><!-- /research-container -->
+
+<script src="nav.js"></script>
+<script src="research.js"></script>
+</body>
+</html>

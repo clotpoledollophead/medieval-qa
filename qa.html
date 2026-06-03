@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scholar Q&A — Cotton Nero A.x</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body class="fs-md">
+
+<!-- ── Site Navigation ── -->
+<nav class="site-nav">
+  <div class="site-nav-inner">
+    <a href="index.html" class="nav-brand">
+      Pearl-Poet Hub
+      <span class="nav-brand-ms">MS Cotton Nero A.x</span>
+    </a>
+    <div class="nav-links">
+      <a href="index.html"   class="nav-link"><span class="nav-icon">⌂</span> <span>Home</span></a>
+      <a href="qa.html"      class="nav-link"><span class="nav-icon">✦</span> <span>Scholar Q&amp;A</span></a>
+      <a href="research.html"class="nav-link"><span class="nav-icon">◉</span> <span>Research</span></a>
+      <a href="explore.html" class="nav-link"><span class="nav-icon">ᚠ</span> <span>Verse Decoder</span></a>
+      <button id="nav-dark-btn" class="nav-dark-btn">☾ Dark</button>
+    </div>
+  </div>
+</nav>
+
+<div id="app">
+
+  <div class="top-bar"></div>
+
+  <!-- ── Toolbar ── -->
+  <div class="toolbar">
+    <div class="toolbar-inner">
+      <div class="toolbar-left">
+        <span class="tool-label">Pearl-Poet Scholar</span>
+      </div>
+      <div class="toolbar-right">
+        <button id="font-btn"          class="tool-btn" title="Cycle font size">Aa</button>
+        <button id="dark-btn"          class="tool-btn" title="Toggle dark mode">☾ Dark</button>
+        <button id="bookmark-view-btn" class="tool-btn" title="View saved answers">★ Saved <span id="bookmark-count" class="badge hidden">0</span></button>
+        <button id="export-btn"        class="tool-btn" title="Export conversation as Markdown">↓ Export</button>
+        <button id="clear-btn"         class="tool-btn" title="Clear conversation">✕ Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- ── Header ── -->
+    <header class="site-header">
+      <div class="ornament">✦ ✦ ✦</div>
+      <h1>Medieval Q&amp;A — Cotton Nero A.x</h1>
+      <p class="subtitle">A scholarly text Q&amp;A — answers grounded in the original Middle English</p>
+    </header>
+
+    <!-- ── Scope tabs ── -->
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-scope="all">All poems</button>
+      <button class="tab"        data-scope="pearl">Pearl</button>
+      <button class="tab"        data-scope="sggk">Sir Gawain</button>
+      <button class="tab"        data-scope="patience">Patience</button>
+      <button class="tab"        data-scope="cleanness">Cleanness</button>
+    </div>
+
+    <!-- ── Suggestion chips ── -->
+    <div class="suggestions-wrapper">
+      <div class="suggestions" id="suggestions">
+        <button class="sug" data-scope="pearl">What is the dreamer's emotional arc in Pearl?</button>
+        <button class="sug" data-scope="sggk">Describe the beheading game</button>
+        <button class="sug" data-scope="patience">How does Jonah's story unfold in Patience?</button>
+        <button class="sug" data-scope="cleanness">How does Cleanness define spiritual purity?</button>
+        <button class="sug" data-scope="all">What unifies the four poems thematically?</button>
+        <button class="sug" data-scope="sggk">Analyse the Green Knight's symbolic function</button>
+        <button class="sug" data-scope="pearl">Explain the significance of the pearl as an image</button>
+        <button class="sug" data-scope="all">Describe the alliterative metre used across the poems</button>
+      </div>
+    </div>
+
+    <!-- ── Ornamental divider ── -->
+    <div class="divider"><span>✦</span></div>
+
+    <!-- ── Chat view ── -->
+    <div id="chat-view">
+      <div class="messages" id="messages">
+        <div class="empty">Your answers will appear here</div>
+      </div>
+    </div>
+
+    <!-- ── Bookmarks view ── -->
+    <div id="bookmarks-view" class="hidden">
+      <div class="view-header">
+        <h2>★ Saved Answers</h2>
+        <button id="back-btn" class="tool-btn">← Back to chat</button>
+      </div>
+      <div class="messages" id="bookmarks-list">
+        <div class="empty">No saved answers yet. Click ☆ on any response to save it here.</div>
+      </div>
+    </div>
+
+    <!-- ── Input area ── -->
+    <div class="input-wrap">
+      <div class="input-row">
+        <textarea id="question" placeholder="Ask about the poems…" rows="1"></textarea>
+        <button id="send-btn" disabled>Ask ↗</button>
+      </div>
+      <div class="input-meta">
+        <span id="char-count" class="char-count">0 / 600</span>
+        <span id="status-text" class="status-text"></span>
+      </div>
+    </div>
+
+    <!-- ── Citation helper ── -->
+    <div class="cite-bar">
+      <span class="cite-label">Generate citation:</span>
+      <button class="cite-btn" data-style="MLA">MLA</button>
+      <button class="cite-btn" data-style="Chicago">Chicago</button>
+      <button class="cite-btn" data-style="APA">APA</button>
+      <button class="cite-btn" data-style="MHRA">MHRA</button>
+    </div>
+
+  </div><!-- /container -->
+</div><!-- /app -->
+
+<!-- ── Footnote modal ── -->
+<div id="footnote-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-top-bar"></div>
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <div class="modal-ornament">✦ ✦ ✦</div>
+        <div class="modal-title">¶ Footnote Formats</div>
+        <div class="modal-subtitle">Andrew &amp; Waldron edition · Four citation styles</div>
+      </div>
+      <button id="modal-close" class="modal-close" title="Close">✕</button>
+    </div>
+    <div id="modal-body" class="modal-body">
+      <div class="modal-loading">
+        Generating footnotes<span class="thinking-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <span class="modal-footer-note">Click any card's copy button to copy that style</span>
+      <button id="modal-copy" class="tool-btn">⎘ Copy all</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="nav.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
