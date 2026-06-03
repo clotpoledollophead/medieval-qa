@@ -8,6 +8,34 @@
 const OPENALEX = 'https://api.openalex.org/works';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
+/* ── Mandatory anchor appended to every query ─────────────── */
+// Forces OpenAlex to only return results mentioning the manuscript
+// or one of the four poems by their scholarly names.
+const ANCHOR =
+  '("cotton nero" OR "pearl-poet" OR "pearl poet" OR ' +
+  '"sir gawain and the green knight" OR "sir gawain green knight" OR ' +
+  '"cleanness poem" OR "purity poem" OR "patience poem" OR ' +
+  '"pearl poem" OR "pearl manuscript" OR "gawain poet")';
+
+/* ── Client-side relevance filter ────────────────────────────
+   Drop any paper whose title + abstract doesn't contain at least
+   one of these terms (catches edge-cases the ANCHOR query misses). */
+const RELEVANCE_TERMS = [
+  'cotton nero', 'pearl-poet', 'pearl poet', 'gawain poet',
+  'sir gawain', 'green knight', 'pearl poem', 'the pearl',
+  'pearl dreamer', 'pearl maiden', 'pearl manuscript',
+  'cleanness', 'patience poem', 'patience jonah',
+  'alliterative revival', 'alliterative tradition',
+  'nero a.x', 'northwest midlands', 'middle english alliterative',
+  'andrew and waldron', 'andrew & waldron',
+];
+
+function isRelevant(paper) {
+  const haystack = `${paper.title} ${paper.abstract}`.toLowerCase();
+  return RELEVANCE_TERMS.some(t => haystack.includes(t));
+}
+
+
 /* ── Category definitions ─────────────────────────────────── */
 const CATEGORIES = [
   {
@@ -17,11 +45,11 @@ const CATEGORIES = [
     color: 'var(--accent)',
     subcategories: [
       { id: 'paleography', name: 'Paleography & Dating',
-        query: '"cotton nero" paleography manuscript scribal' },
+        query: '"cotton nero" paleography manuscript scribal hand' },
       { id: 'illuminations', name: 'Illuminations',
-        query: '"cotton nero" illuminations miniatures medieval artwork' },
+        query: '"cotton nero" illuminations miniatures paintings medieval' },
       { id: 'provenance', name: 'Provenance & Geography',
-        query: '"pearl poet" "cotton nero" provenance "northwest midlands"' }
+        query: '"cotton nero" OR "pearl poet" provenance northwest midlands Cheshire' }
     ]
   },
   {
@@ -31,9 +59,9 @@ const CATEGORIES = [
     color: 'var(--purple)',
     subcategories: [
       { id: 'biographical', name: 'Biographical Theories',
-        query: '"pearl poet" author identity biography attribution' },
+        query: '"pearl poet" OR "gawain poet" author identity biography' },
       { id: 'stylometry', name: 'Computational Stylometry',
-        query: '"pearl poet" OR "sir gawain" stylometry authorship computational' }
+        query: '"pearl poet" OR "gawain poet" stylometry authorship attribution computational' }
     ]
   },
   {
@@ -43,11 +71,11 @@ const CATEGORIES = [
     color: 'var(--green)',
     subcategories: [
       { id: 'dialectology', name: 'Dialectology',
-        query: '"pearl poet" OR "cotton nero" dialectology "middle english" dialect' },
+        query: '"pearl poet" OR "cotton nero" dialectology middle english dialect northwest' },
       { id: 'semantic', name: 'Semantic Domains',
-        query: '"pearl poet" lexicography semantic vocabulary "middle english"' },
+        query: '"pearl poet" OR "pearl poem" lexicography semantic domains vocabulary' },
       { id: 'prosody', name: 'Sound Symbolism & Prosody',
-        query: '"pearl poet" OR "sir gawain" alliterative verse prosody phonetics' }
+        query: '"pearl poet" OR "sir gawain green knight" alliterative prosody sound symbolism' }
     ]
   },
   {
@@ -57,11 +85,11 @@ const CATEGORIES = [
     color: 'var(--gold)',
     subcategories: [
       { id: 'theology', name: 'Theology & Soteriology',
-        query: '"pearl poem" OR "sir gawain" theology grace soteriology salvation medieval' },
+        query: '"pearl poem" OR "pearl poet" theology soteriology grace salvation' },
       { id: 'socio', name: 'Socio-Historical Context',
-        query: '"sir gawain" OR "pearl poet" historical context chivalry fourteenth century' },
+        query: '"sir gawain green knight" OR "pearl poet" historical social context chivalry' },
       { id: 'allegory', name: 'Epistemology & Allegory',
-        query: '"pearl poem" allegory "dream vision" epistemology medieval' }
+        query: '"pearl poem" OR "pearl poet" allegory dream vision epistemology interpretation' }
     ]
   },
   {
@@ -71,9 +99,9 @@ const CATEGORIES = [
     color: 'var(--clean)',
     subcategories: [
       { id: 'translation', name: 'Translation Theory',
-        query: '"sir gawain green knight" OR "pearl poem" translation modern english theory' },
+        query: '"sir gawain green knight" OR "pearl poem" translation modern english reception' },
       { id: 'digitization', name: 'Digitization',
-        query: '"cotton nero" OR "pearl manuscript" digital humanities digitization TEI' }
+        query: '"cotton nero" OR "pearl manuscript" digital humanities digitization encoding' }
     ]
   }
 ];
@@ -86,10 +114,11 @@ const $ = id => document.getElementById(id);
    OPENALEX FETCH
    ══════════════════════════════════════════════════════════ */
 async function fetchPapers(query) {
+  // Append mandatory anchor so every result mentions the manuscript or a poem
   const params = new URLSearchParams({
-    search:   query,
+    search:   `${query} ${ANCHOR}`,
     sort:     'publication_date:desc',
-    per_page: '8',
+    per_page: '15',   // fetch extra so client-side filter still leaves enough
     select:   'title,authorships,publication_year,primary_location,abstract_inverted_index,doi,open_access,type'
   });
 
@@ -101,7 +130,7 @@ async function fetchPapers(query) {
 
   const data = await res.json();
 
-  return (data.results || []).map(work => ({
+  const mapped = (data.results || []).map(work => ({
     title:    work.title || 'Untitled',
     authors:  (work.authorships || [])
                 .slice(0, 3)
@@ -116,6 +145,9 @@ async function fetchPapers(query) {
               || work.primary_location?.landing_page_url
               || ''
   }));
+
+  // Secondary client-side filter: drop anything with no recognisable poem/MS term
+  return mapped.filter(isRelevant).slice(0, 8);
 }
 
 /* Reconstruct OpenAlex inverted-index abstract */
