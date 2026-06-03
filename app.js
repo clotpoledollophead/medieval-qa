@@ -3,9 +3,6 @@
    app.js  ·  Requires style.css + index.html
    ══════════════════════════════════════════════════════════ */
 
-/* ── Configuration ────────────────────────────────────────
-   Replace this URL with your deployed Cloudflare Worker URL
-   ───────────────────────────────────────────────────────── */
 const WORKER_URL = '/api/ask';
 
 /* ── System prompts ───────────────────────────────────────── */
@@ -17,7 +14,7 @@ const BASE_SYSTEM =
   `in parentheses. Keep answers substantive (2–4 paragraphs) but avoid padding or preamble.`;
 
 const SCOPE_CONTEXT = {
-  both:      'You may draw on both Pearl and Sir Gawain and the Green Knight.',
+  all:      'You may draw on all Pearl and Sir Gawain and the Green Knight.',
   pearl:     'Focus your answer only on the poem Pearl.',
   sggk:      'Focus your answer only on Sir Gawain and the Green Knight.',
   patience:  'Focus your answer only on the poem Patience, the Pearl-poet\'s retelling of the Book of Jonah.',
@@ -25,14 +22,14 @@ const SCOPE_CONTEXT = {
 };
 
 const PILL_LABELS = {
-  both: 'Both poems', pearl: 'Pearl', sggk: 'Sir Gawain',
+  all: 'All poems', pearl: 'Pearl', sggk: 'Sir Gawain',
   patience: 'Patience', cleanness: 'Cleanness',
 };
 
 const MAX_CHARS = 600;
 
 /* ── State ────────────────────────────────────────────────── */
-let scope    = 'both';
+let scope    = 'all';
 let history  = [];   // Gemini-format [{role, parts:[{text}]}]
 let messages = [];   // [{id, role, text, scope, bookmarked, ts, failed}]
 let view     = 'chat';
@@ -140,7 +137,7 @@ function updateCharCounter() {
 function setStatus(text) { statusText.textContent = text; }
 
 /* ══════════════════════════════════════════════════════════
-   ASK  /  GEMINI via CLOUDFLARE WORKER
+   ASK  /  GEMINI via CLOUDFLARE PAGES FUNCTION
    ══════════════════════════════════════════════════════════ */
 async function ask(question) {
   const q = (question ?? questionEl.value).trim();
@@ -152,19 +149,20 @@ async function ask(question) {
   setLoading(true);
   setStatus('Consulting the texts…');
 
-  // Add user message
   const userMsg = addMessage('user', q);
   history.push({ role: 'user', parts: [{ text: q }] });
 
-  // Show thinking bubble
   const thinkId = showThinking();
-
   const systemPrompt = `${BASE_SYSTEM}\n\n${SCOPE_CONTEXT[scope]}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
     const res = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: history,
@@ -172,20 +170,45 @@ async function ask(question) {
       }),
     });
 
+    clearTimeout(timeout);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
 
-    const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response received.';
-    history.push({ role: 'model', parts: [{ text: answer }] });
     hideThinking(thinkId);
-    addMessage('assistant', answer, scope);
+    const assistantMsg = addMessage('assistant', '', scope);
+    let fullText = '';
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      for (const line of decoder.decode(value).split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const json = line.slice(6).trim();
+        if (!json || json === '[DONE]') continue;
+        try {
+          const chunk = JSON.parse(json);
+          if (chunk.error) throw new Error(chunk.error.message);
+          fullText += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          assistantMsg.text = fullText;
+          const bubble = messagesEl.querySelector(`[data-id="${assistantMsg.id}"] .msg-content`);
+          if (bubble) bubble.innerHTML = renderText(fullText, true);
+          scrollBottom();
+        } catch (e) { throw e; }
+      }
+    }
+
+    history.push({ role: 'model', parts: [{ text: fullText }] });
     setStatus('');
+
   } catch (err) {
+    clearTimeout(timeout);
     hideThinking(thinkId);
-    const errText = formatError(err.message);
+    const errText = formatError(err.name === 'AbortError' ? 'Request timed out after 30 seconds.' : err.message);
     addMessage('assistant', errText, scope, true);
-    history.pop(); // remove failed user message from history
+    history.pop();
     setStatus('');
   }
 
@@ -195,9 +218,9 @@ async function ask(question) {
 
 function formatError(msg) {
   if (msg.includes('Failed to fetch') || msg.includes('NetworkError'))
-    return '⚠ Could not reach the server. Check that your Cloudflare Worker URL is set correctly in app.js and that the worker is deployed.';
+    return '⚠ Could not reach the server. Check that the Pages Function is deployed correctly.';
   if (msg.includes('404'))
-    return '⚠ Worker not found (404). Double-check the WORKER_URL in app.js.';
+    return '⚠ Function not found (404). Make sure functions/api/ask.js is at the repo root.';
   return `⚠ Error: ${msg}`;
 }
 
@@ -218,7 +241,6 @@ function addMessage(role, text, sc, failed = false) {
 }
 
 function renderMessage(msg, container) {
-  // Remove empty state
   const empty = container.querySelector('.empty');
   if (empty) empty.remove();
 
@@ -246,7 +268,6 @@ function renderMessage(msg, container) {
       ${msg.failed ? `<button class="action-btn retry-btn" data-id="${msg.id}" title="Retry">↺ Retry</button>` : ''}
     </div>`;
 
-  // Bind action buttons
   const copyBtn  = div.querySelector('.copy-btn');
   const bkBtn    = div.querySelector('.bk-btn');
   const retryBtn = div.querySelector('.retry-btn');
@@ -304,8 +325,6 @@ function hideThinking(id) { const el = $(id); if (el) el.remove(); }
 /* ══════════════════════════════════════════════════════════
    MESSAGE ACTIONS
    ══════════════════════════════════════════════════════════ */
-
-/* Copy ───────────────────────────────────────────────────── */
 async function copyMessage(id, btn) {
   const msg = messages.find(m => m.id === id);
   if (!msg) return;
@@ -319,13 +338,11 @@ async function copyMessage(id, btn) {
   }
 }
 
-/* Bookmark ───────────────────────────────────────────────── */
 function toggleBookmark(id) {
   const msg = messages.find(m => m.id === id);
   if (!msg) return;
   msg.bookmarked = !msg.bookmarked;
 
-  // Update button in chat view
   const chatBkBtn = messagesEl.querySelector(`.bk-btn[data-id="${id}"]`);
   if (chatBkBtn) {
     chatBkBtn.textContent = msg.bookmarked ? '★ Saved' : '☆ Save';
@@ -335,7 +352,6 @@ function toggleBookmark(id) {
   updateBookmarkBadge();
   saveBookmarks();
 
-  // Refresh bookmarks view if open
   if (view === 'bookmarks') renderAllMessages(bookmarkList, messages.filter(m => m.bookmarked));
 }
 
@@ -345,16 +361,13 @@ function updateBookmarkBadge() {
   bookmarkCnt.classList.toggle('hidden', count === 0);
 }
 
-/* Retry ──────────────────────────────────────────────────── */
 function retryMessage(id) {
   const failedMsg = messages.find(m => m.id === id);
   if (!failedMsg) return;
-  // Find the preceding user message
   const idx = messages.indexOf(failedMsg);
   const userMsg = messages.slice(0, idx).reverse().find(m => m.role === 'user');
   if (!userMsg) return;
 
-  // Remove failed message from state and DOM
   messages.splice(idx, 1);
   const el = messagesEl.querySelector(`[data-id="${id}"]`);
   if (el) el.remove();
@@ -374,7 +387,6 @@ function bindToolbar() {
   $('back-btn').addEventListener('click', showChatView);
 }
 
-/* Dark mode ──────────────────────────────────────────────── */
 function toggleDark() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
@@ -382,7 +394,6 @@ function toggleDark() {
   $('dark-btn').textContent = isDark ? '☾ Dark' : '☀ Light';
 }
 
-/* Font size ──────────────────────────────────────────────── */
 const FS_CYCLE = ['sm', 'md', 'lg'];
 function cycleFontSize() {
   const cur = FS_CYCLE.find(f => document.body.classList.contains('fs-' + f)) || 'md';
@@ -393,7 +404,6 @@ function cycleFontSize() {
   $('font-btn').textContent = { sm: 'Aa (S)', md: 'Aa (M)', lg: 'Aa (L)' }[next];
 }
 
-/* Clear chat ─────────────────────────────────────────────── */
 function clearChat() {
   if (!messages.length) return;
   if (!confirm('Clear the entire conversation? Saved (bookmarked) answers will be kept.')) return;
@@ -403,7 +413,6 @@ function clearChat() {
   setStatus('');
 }
 
-/* Export as Markdown ─────────────────────────────────────── */
 function exportChat() {
   const chat = messages.filter(m => !m.failed);
   if (!chat.length) { alert('Nothing to export yet.'); return; }
@@ -414,7 +423,7 @@ function exportChat() {
     return `### ${role}\n\n${m.text}`;
   });
 
-  const md = `# Pearl & Sir Gawain — Scholarly Q&A\n*Exported ${date}*\n\n---\n\n${lines.join('\n\n---\n\n')}`;
+  const md   = `# Pearl & Sir Gawain — Scholarly Q&A\n*Exported ${date}*\n\n---\n\n${lines.join('\n\n---\n\n')}`;
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   const a    = Object.assign(document.createElement('a'), {
@@ -452,7 +461,7 @@ function bindCitationBar() {
 }
 
 const POEM_NAMES = {
-  both:      'Pearl and Sir Gawain and the Green Knight',
+  all:      'Pearl and Sir Gawain and the Green Knight',
   pearl:     'Pearl',
   sggk:      'Sir Gawain and the Green Knight',
   patience:  'Patience',
