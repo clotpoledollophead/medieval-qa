@@ -55,7 +55,7 @@ Hit watz Ennias þe athel, and his highe kynde,
 Welneȝe of al þe wele in þe west iles.`
     },
     {
-      name: 'The Green Knight's entrance (ll. 136–144)',
+      name: 'The Green Knight\'s entrance (ll. 136–144)',
       text: `Þer hales in at þe halle dor an aghlich mayster,
 On þe most on þe molde on mesure hyghe;
 Fro þe swyre to þe þwange so sware and so þik,
@@ -150,7 +150,7 @@ let decoding    = false;
    SHARED WORKER HELPER
    (same request/response format as app.js)
    ══════════════════════════════════════════════════════════ */
-async function callWorker(systemPrompt, userMessage, maxTokens = 1200) {
+async function callWorker(systemPrompt, userMessage, maxTokens = 2000) {
   const res = await fetch(WORKER_URL, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -166,12 +166,18 @@ async function callWorker(systemPrompt, userMessage, maxTokens = 1200) {
   const reader  = res.body.getReader();
   const decoder = new TextDecoder();
   let fullText  = '';
+  let buffer    = '';
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    for (const line of decoder.decode(value).split('\n')) {
+    // Buffer across chunk boundaries so we never split an SSE line mid-parse
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // keep the potentially-incomplete last line
+
+    for (const line of lines) {
       if (!line.startsWith('data: ')) continue;
       const json = line.slice(6).trim();
       if (!json || json === '[DONE]') continue;
@@ -179,7 +185,10 @@ async function callWorker(systemPrompt, userMessage, maxTokens = 1200) {
         const chunk = JSON.parse(json);
         if (chunk.error) throw new Error(chunk.error.message || JSON.stringify(chunk.error));
         fullText += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } catch (e) { throw e; }
+      } catch (e) {
+        // Only rethrow real API errors; swallow transient SSE parse failures
+        if (e.message && !e.message.startsWith('JSON')) throw e;
+      }
     }
   }
 
@@ -252,7 +261,7 @@ async function decode() {
     const userMessage =
       `Decode this passage from ${poemNames[currentPoem] || 'the Pearl-poet'} (MS Cotton Nero A.x):\n\n${text}`;
 
-    const raw = await callWorker(DECODE_SYSTEM, userMessage, 1200);
+    const raw = await callWorker(DECODE_SYSTEM, userMessage, 2000);
 
     // Strip any markdown fences
     const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
