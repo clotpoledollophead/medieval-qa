@@ -6,7 +6,7 @@
 /* ── Configuration ────────────────────────────────────────
    Replace this URL with your deployed Cloudflare Worker URL
    ───────────────────────────────────────────────────────── */
-const WORKER_URL = 'https://YOUR_WORKER_NAME.YOUR_SUBDOMAIN.workers.dev';
+const WORKER_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=GEMINI_API_KEY';
 
 /* ── System prompts ───────────────────────────────────────── */
 const BASE_SYSTEM =
