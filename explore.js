@@ -146,7 +146,7 @@ let decoding    = false;
    SHARED WORKER HELPER
    (same request/response format as app.js)
    ══════════════════════════════════════════════════════════ */
-async function callWorker(systemPrompt, userMessage, maxTokens = 2000) {
+async function callWorker(systemPrompt, userMessage, maxTokens = 1200) {
   const res = await fetch(WORKER_URL, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -157,35 +157,43 @@ async function callWorker(systemPrompt, userMessage, maxTokens = 2000) {
     })
   });
 
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status}: ${body || res.statusText}`);
+  }
 
   const reader  = res.body.getReader();
   const decoder = new TextDecoder();
   let fullText  = '';
   let buffer    = '';
 
+  const processLine = line => {
+    if (!line.startsWith('data: ')) return;
+    const json = line.slice(6).trim();
+    if (!json || json === '[DONE]') return;
+    try {
+      const chunk = JSON.parse(json);
+      if (chunk.error) throw new Error(chunk.error.message || JSON.stringify(chunk.error));
+      fullText += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } catch (e) {
+      if (e.message && !e.message.startsWith('JSON') && !e.message.startsWith('Unexpected')) throw e;
+    }
+  };
+
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
 
-    // Buffer across chunk boundaries so we never split an SSE line mid-parse
+    if (done) {
+      // Flush any remaining decoder bytes and process the last buffer chunk
+      buffer += decoder.decode();
+      buffer.split('\n').forEach(processLine);
+      break;
+    }
+
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
-    buffer = lines.pop(); // keep the potentially-incomplete last line
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const json = line.slice(6).trim();
-      if (!json || json === '[DONE]') continue;
-      try {
-        const chunk = JSON.parse(json);
-        if (chunk.error) throw new Error(chunk.error.message || JSON.stringify(chunk.error));
-        fullText += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } catch (e) {
-        // Only rethrow real API errors; swallow transient SSE parse failures
-        if (e.message && !e.message.startsWith('JSON')) throw e;
-      }
-    }
+    buffer = lines.pop() ?? '';
+    lines.forEach(processLine);
   }
 
   return fullText;
@@ -248,6 +256,8 @@ async function decode() {
   $('decode-btn').disabled = true;
   $('decode-loading').classList.add('visible');
   $('decode-results').classList.remove('visible');
+  const errEl = $('decode-error');
+  if (errEl) errEl.style.display = 'none';
 
   try {
     const poemNames = {
@@ -273,12 +283,28 @@ async function decode() {
     renderResults(data, text);
     $('decode-results').classList.add('visible');
   } catch (err) {
-    alert('Decoding failed: ' + err.message);
+    showDecodeError(err.message, typeof raw !== 'undefined' ? raw : '');
   }
 
   $('decode-loading').classList.remove('visible');
   $('decode-btn').disabled = false;
   decoding = false;
+}
+
+function showDecodeError(message, raw) {
+  const preview = raw
+    ? `<details style="margin-top:10px"><summary style="cursor:pointer;color:var(--muted);font-size:12px">Show model response</summary><pre style="font-size:11px;white-space:pre-wrap;margin-top:6px;color:var(--muted)">${escHtml(raw.slice(0, 600))}</pre></details>`
+    : '';
+  // Show error inline below the decode button instead of an alert
+  let errEl = $('decode-error');
+  if (!errEl) {
+    errEl = document.createElement('div');
+    errEl.id = 'decode-error';
+    errEl.style.cssText = 'margin-top:12px;padding:12px 16px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;font-family:var(--serif);font-size:14px;color:var(--danger,#c0392b)';
+    $('decode-loading').after(errEl);
+  }
+  errEl.innerHTML = `⚠ ${escHtml(message)}${preview}`;
+  errEl.style.display = 'block';
 }
 
 /* ── Tokenise a Middle English passage into word tokens ──── */
