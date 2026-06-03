@@ -6,7 +6,7 @@
 /* ── Configuration ────────────────────────────────────────
    Replace this URL with your deployed Cloudflare Worker URL
    ───────────────────────────────────────────────────────── */
-const WORKER_URL = 'functions/api/ask';
+const WORKER_URL = 'https://YOUR_WORKER_NAME.YOUR_SUBDOMAIN.workers.dev';
 
 /* ── System prompts ───────────────────────────────────────── */
 const BASE_SYSTEM =
@@ -53,7 +53,6 @@ const bookmarkCnt  = $('bookmark-count');
 const chatView     = $('chat-view');
 const bookmarkView = $('bookmarks-view');
 const sugBox       = $('suggestions');
-const sugsToggle   = $('sugs-toggle');
 
 /* ══════════════════════════════════════════════════════════
    INIT
@@ -105,16 +104,8 @@ function bindTabs() {
    SUGGESTIONS
    ══════════════════════════════════════════════════════════ */
 function bindSuggestions() {
-  let expanded = false;
-
   $$('.sug').forEach(btn => {
     btn.addEventListener('click', () => ask(btn.textContent.trim()));
-  });
-
-  sugsToggle.addEventListener('click', () => {
-    expanded = !expanded;
-    sugBox.classList.toggle('expanded', expanded);
-    sugsToggle.textContent = expanded ? 'Show less ▴' : 'Show more ▾';
   });
 }
 
@@ -244,7 +235,7 @@ function renderMessage(msg, container) {
       <span class="msg-time">${time}</span>
     </div>
     <div class="msg-bubble">
-      ${escHtml(msg.text)}
+      <div class="msg-content">${renderText(msg.text, !isUser)}</div>
       ${!isUser ? `<div><span class="pill pill-${msg.scope}">${PILL_LABELS[msg.scope] || ''}</span></div>` : ''}
     </div>
     <div class="msg-actions">
@@ -280,8 +271,12 @@ function escHtml(t) {
   return t
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
+    .replace(/>/g, '&gt;');
+}
+
+function renderText(text, isAssistant) {
+  if (!isAssistant) return escHtml(text).replace(/\n/g, '<br>');
+  return marked.parse(text);
 }
 
 function scrollBottom() {
