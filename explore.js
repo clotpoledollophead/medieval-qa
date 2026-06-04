@@ -55,7 +55,7 @@ Hit watz Ennias þe athel, and his highe kynde,
 Welneȝe of al þe wele in þe west iles.`
     },
     {
-      name: 'The Green Knight\'s entrance (ll. 136–144)',
+      name: 'The Green Knight's entrance (ll. 136–144)',
       text: `Þer hales in at þe halle dor an aghlich mayster,
 On þe most on þe molde on mesure hyghe;
 Fro þe swyre to þe þwange so sware and so þik,
@@ -272,8 +272,7 @@ async function decode() {
       `{\n` +
       `  "translation": "complete fluent Modern English rendering",\n` +
       `  "commentary": "2-3 sentences of scholarly commentary citing Andrew & Waldron 5th ed.",\n` +
-      `  "prosody": [{"line":"<ME line>","pattern":"<e.g. aa/ax>","note":"<one sentence>"}]\n` +
-      `}`;
+            `}`;
 
     const raw = await callWorker(DECODE_SYSTEM, userMessage, 1200, '{"translation":');
     const data = parseJsonRobust(raw);
@@ -335,7 +334,7 @@ function tokenisePassage(text) {
 /* ══════════════════════════════════════════════════════════
    ROBUST JSON PARSER
    Handles truncated responses (words array cut mid-stream).
-   Fields are ordered translation → commentary → prosody → words
+   Fields are ordered translation → commentary → words
    so the most useful parts survive even partial responses.
    ══════════════════════════════════════════════════════════ */
 function parseJsonRobust(raw) {
@@ -404,7 +403,6 @@ function patchTruncated(s) {
 function renderResults(data, originalText) {
   renderSideBySide(originalText, data.translation || '');
   renderGlossary(data.words     || []);
-  renderProsody(data.prosody    || []);
   renderCommentary(data.commentary || '');
 }
 
@@ -437,20 +435,6 @@ function renderGlossary(words) {
   $('word-count-label').textContent = `${found}/${total} tokens matched`;
 }
 
-function renderProsody(lines) {
-  const el = $('prosody-list');
-  if (!lines.length) {
-    el.innerHTML = '<div class="papers-empty">No prosody data returned.</div>';
-    return;
-  }
-  el.innerHTML = lines.map(l => `
-    <div class="prosody-row">
-      <div class="prosody-line">${escHtml(l.line    || '')}</div>
-      <div class="prosody-pattern">${escHtml(l.pattern || '')}</div>
-      <div class="prosody-note">${escHtml(l.note    || '')}</div>
-    </div>`
-  ).join('');
-}
 
 function renderCommentary(text) {
   $('commentary-text').innerHTML = text.split('\n').filter(p => p.trim()).map(p =>
