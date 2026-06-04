@@ -206,6 +206,7 @@ function init() {
   bindDecodeBtn();
   bindCopyTranslation();
   populatePassages('pearl');
+  initCorpusStatusBar();
 }
 
 function bindPoemSelect() {
@@ -289,6 +290,14 @@ async function decode() {
 
     renderResults(data, text);
     $('decode-results').classList.add('visible');
+
+    // Corpus passage lookup — non-blocking
+    const poemKey = { pearl:'pearl', sggk:'sggk', patience:'patience', cleanness:'cleanness' }[currentPoem];
+    if (CORPUS_STATUS === 'ready') {
+      renderCorpusMatch(poemKey, text);
+    } else {
+      onCorpusReady(() => renderCorpusMatch(poemKey, text));
+    }
   } catch (err) {
     showDecodeError(err.message, typeof raw !== 'undefined' ? raw : '');
   }
@@ -458,6 +467,108 @@ function bindCopyTranslation() {
       setTimeout(() => { $('copy-translation-btn').textContent = '⎘ Copy translation'; }, 2000);
     } catch { prompt('Copy this translation:', text); }
   });
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   CORPUS INTEGRATION
+   ══════════════════════════════════════════════════════════ */
+function initCorpusStatusBar() {
+  // Show a small status pill near the decode button
+  let bar = $('corpus-status');
+  if (!bar) {
+    bar = document.createElement('span');
+    bar.id = 'corpus-status';
+    bar.style.cssText =
+      'font-family:var(--sans);font-size:11px;color:var(--muted);' +
+      'margin-left:10px;transition:color 0.2s;';
+    const actions = document.querySelector('.decode-actions');
+    if (actions) actions.appendChild(bar);
+  }
+
+  const update = (status) => {
+    const msgs = {
+      idle:    '',
+      loading: '⟳ Loading corpus…',
+      ready:   '',
+      error:   '⚠ Corpus unavailable'
+    };
+    bar.textContent = msgs[status] || '';
+    if (status === 'ready' && CORPUS) {
+      const stats = corpusStats();
+      if (stats) {
+        const total = Object.values(stats).reduce((a,b) => a+b, 0);
+        bar.textContent = `✓ Corpus loaded (${total.toLocaleString()} lines)`;
+        bar.style.color = 'var(--green)';
+        setTimeout(() => { bar.textContent = ''; }, 3000);
+      }
+    }
+  };
+
+  update(CORPUS_STATUS);
+  onCorpusReady(update);
+  // Also track loading state
+  if (CORPUS_STATUS === 'loading') {
+    const interval = setInterval(() => {
+      if (CORPUS_STATUS !== 'loading') {
+        update(CORPUS_STATUS);
+        clearInterval(interval);
+      }
+    }, 400);
+  }
+}
+
+function renderCorpusMatch(poem, pastedText) {
+  // Remove any previous match panel
+  const old = $('corpus-match-panel');
+  if (old) old.remove();
+
+  const result = findPassage(poem, pastedText);
+  if (!result.found) return;
+
+  // Build a panel showing line numbers and context
+  const panel = document.createElement('div');
+  panel.id = 'corpus-match-panel';
+  panel.className = 'result-section';
+  panel.style.marginBottom = '14px';
+
+  const poemNames = { pearl:'Pearl', sggk:'Sir Gawain', patience:'Patience', cleanness:'Cleanness' };
+
+  const contextHtml = result.context.map(line => {
+    const isMatch = line.num >= result.lineStart && line.num <= result.lineEnd;
+    const style = isMatch
+      ? 'background:var(--accent-l);border-radius:3px;padding:1px 4px;font-weight:600;'
+      : '';
+    return `<div style="display:flex;gap:12px;align-items:baseline;margin-bottom:2px">` +
+      `<span style="font-family:var(--sans);font-size:10px;color:var(--muted);min-width:28px;text-align:right;flex-shrink:0">${line.num}</span>` +
+      `<span style="font-family:var(--serif);font-size:14px;font-style:italic;color:var(--text);${style}">${escHtml(line.text)}</span>` +
+      `</div>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <div class="result-section-header">
+      <div class="result-section-title">
+        ◉ Found in corpus
+        <span style="font-family:var(--sans);font-size:11px;font-weight:400;color:var(--muted);margin-left:8px">
+          ${escHtml(poemNames[poem] || poem)} · lines ${result.lineStart}–${result.lineEnd}
+        </span>
+      </div>
+    </div>
+    <div class="result-section-body" style="padding:14px 18px">
+      <div style="font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Context (±3 lines)</div>
+      ${contextHtml}
+      <div style="margin-top:10px;font-family:var(--sans);font-size:11px;color:var(--muted)">
+        Source: <em>Early English Alliterative Poems</em>, ed. R. Morris, EETS 1869 (Project Gutenberg).
+      </div>
+    </div>`;
+
+  // Insert before the side-by-side section
+  const firstSection = $('decode-results').querySelector('.result-section');
+  if (firstSection) {
+    $('decode-results').insertBefore(panel, firstSection);
+  } else {
+    $('decode-results').appendChild(panel);
+  }
 }
 
 /* ── Utils ──────────────────────────────────────────────────── */
