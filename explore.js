@@ -55,7 +55,7 @@ Hit watz Ennias þe athel, and his highe kynde,
 Welneȝe of al þe wele in þe west iles.`
     },
     {
-      name: 'The Green Knight's entrance (ll. 136–144)',
+      name: 'The Green Knight\'s entrance (ll. 136–144)',
       text: `Þer hales in at þe halle dor an aghlich mayster,
 On þe most on þe molde on mesure hyghe;
 Fro þe swyre to þe þwange so sware and so þik,
