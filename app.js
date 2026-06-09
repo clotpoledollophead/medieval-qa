@@ -202,25 +202,36 @@ async function ask(question) {
 
     const reader  = res.body.getReader();
     const decoder = new TextDecoder();
+    let   buffer  = '';
+
+    const processLine = line => {
+      if (!line.startsWith('data: ')) return;
+      const json = line.slice(6).trim();
+      if (!json || json === '[DONE]') return;
+      try {
+        const chunk = JSON.parse(json);
+        if (chunk.error) throw new Error(chunk.error.message);
+        fullText += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        assistantMsg.text = fullText;
+        const bubble = messagesEl.querySelector(`[data-id="${assistantMsg.id}"] .msg-content`);
+        if (bubble) bubble.innerHTML = renderText(fullText, true);
+        scrollBottom();
+      } catch (e) {
+        if (e.message && !e.message.startsWith('JSON') && !e.message.startsWith('Unexpected')) throw e;
+      }
+    };
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-
-      for (const line of decoder.decode(value).split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        const json = line.slice(6).trim();
-        if (!json || json === '[DONE]') continue;
-        try {
-          const chunk = JSON.parse(json);
-          if (chunk.error) throw new Error(chunk.error.message);
-          fullText += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          assistantMsg.text = fullText;
-          const bubble = messagesEl.querySelector(`[data-id="${assistantMsg.id}"] .msg-content`);
-          if (bubble) bubble.innerHTML = renderText(fullText, true);
-          scrollBottom();
-        } catch (e) { throw e; }
+      if (done) {
+        buffer += decoder.decode();
+        buffer.split('\n').forEach(processLine);
+        break;
       }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      lines.forEach(processLine);
     }
 
     // Render any charts now that the full response is in
@@ -528,22 +539,32 @@ async function streamFootnote(answerText) {
     const decoder = new TextDecoder();
     let   full    = '';
     let   started = false;
+    let   buf2    = '';
+
+    const processLine2 = line => {
+      if (!line.startsWith('data: ')) return;
+      const json = line.slice(6).trim();
+      if (!json || json === '[DONE]') return;
+      try {
+        const chunk = JSON.parse(json);
+        full += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        modalText = full;
+        if (!started) { modalBody.innerHTML = '<div class="modal-content"></div>'; started = true; }
+        modalBody.querySelector('.modal-content').innerHTML = marked.parse(full);
+      } catch {}
+    };
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-      for (const line of decoder.decode(value).split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        const json = line.slice(6).trim();
-        if (!json || json === '[DONE]') continue;
-        try {
-          const chunk = JSON.parse(json);
-          full += chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          modalText = full;
-          if (!started) { modalBody.innerHTML = '<div class="modal-content"></div>'; started = true; }
-          modalBody.querySelector('.modal-content').innerHTML = marked.parse(full);
-        } catch {}
+      if (done) {
+        buf2 += decoder.decode();
+        buf2.split('\n').forEach(processLine2);
+        break;
       }
+      buf2 += decoder.decode(value, { stream: true });
+      const lines = buf2.split('\n');
+      buf2 = lines.pop() ?? '';
+      lines.forEach(processLine2);
     }
   } catch (err) {
     modalBody.innerHTML = `<p style="color:var(--danger)">⚠ Error: ${escHtml(err.message)}</p>`;
