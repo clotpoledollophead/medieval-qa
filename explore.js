@@ -55,7 +55,7 @@ Hit watz Ennias þe athel, and his highe kynde,
 Welneȝe of al þe wele in þe west iles.`
     },
     {
-      name: 'The Green Knight's entrance (ll. 136–144)',
+      name: "The Green Knight's entrance (ll. 136–144)",
       text: `Þer hales in at þe halle dor an aghlich mayster,
 On þe most on þe molde on mesure hyghe;
 Fro þe swyre to þe þwange so sware and so þik,
@@ -284,10 +284,13 @@ async function decode() {
     renderGlossaryLoading(tokens.length);
     $('decode-results').classList.add('visible');
     // Fetch all tokens in parallel (Wiktionary handles concurrent requests fine)
-    data.words = await Promise.all(tokens.map(lookupWordFull));
-    // Re-render glossary with live results
-    renderGlossary(data.words);
-
+    // Batch lookups 5 at a time to avoid Wiktionary rate-limiting
+    const words = [];
+    for (let i = 0; i < tokens.length; i += 5) {
+      const batch = await Promise.all(tokens.slice(i, i + 5).map(lookupWordFull));
+      words.push(...batch);
+    }
+    data.words = words;
     renderResults(data, text);
 
     // Corpus passage lookup — non-blocking
@@ -369,7 +372,7 @@ async function lookupWiktionary(word) {
     try {
       const res = await fetch(
         `${WIKT_BASE}/${encodeURIComponent(variant)}`,
-        { headers: { Accept: 'application/json' } }
+        { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(5000) }
       );
       if (!res.ok) continue;
 
@@ -443,7 +446,7 @@ async function lookupWordFull(rawTok) {
 function renderGlossaryLoading(count) {
   const tbody = $('gloss-tbody');
   tbody.innerHTML = `<tr>
-    <td colspan="4" style="text-align:center;padding:16px;color:var(--muted);font-family:var(--serif);font-style:italic">
+    <td colspan="5" style="text-align:center;padding:16px;color:var(--muted);font-family:var(--serif);font-style:italic">
       Looking up ${count} tokens in Wiktionary
       <span class="thinking-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
     </td></tr>`;
