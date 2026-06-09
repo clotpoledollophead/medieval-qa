@@ -1,0 +1,18 @@
+# Render.com deployment config — free tier is sufficient.
+# 1. Push scholar_api/ to a GitHub repo (or a sub-folder of your main repo).
+# 2. Create a new Web Service on render.com pointing at that repo.
+# 3. Render auto-detects render.yaml and configures the service.
+# 4. Copy the deployed URL into SCHOLAR_API_URL in research.js.
+
+services:
+  - type: web
+    name: medieval-scholar-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    # Free tier spins down after 15 min of inactivity — first request
+    # after a cold start takes ~30 s. Upgrade to Starter ($7/mo) if
+    # you want always-on response times.

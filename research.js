@@ -216,27 +216,35 @@ async function fetchFromCrossRef(query) {
   });
 }
 
+
 /* ══════════════════════════════════════════════════════════
-   SOURCE 4 — Google Scholar (via /api/scholar worker)
-   Direct scrape — no third-party service.
+   SOURCE 4 — Google Scholar
+   Calls the Python/scholarly microservice (scholar_api/).
+   Deploy scholar_api/ to Render or Railway, then paste
+   the deployed URL into SCHOLAR_API_URL below.
    ══════════════════════════════════════════════════════════ */
+
+// ▶ Set this after deploying scholar_api/.
+//   e.g. 'https://medieval-scholar-api.onrender.com'
+const SCHOLAR_API_URL = '';
+
 async function fetchFromScholar(query) {
+  if (!SCHOLAR_API_URL) return []; // not deployed yet — skip silently
+
   const params = new URLSearchParams({ q: query, n: '15' });
-  const res    = await fetch(`/api/scholar?${params}`, {
-    headers: { Accept: 'application/json' }
+  const res = await fetch(`${SCHOLAR_API_URL}/scholar?${params}`, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(20000), // 20 s — scholarly is slow on cold start
   });
-  if (!res.ok) throw new Error(`Scholar worker HTTP ${res.status}`);
 
-  const data  = await res.json();
-  const items = Array.isArray(data) ? data : (data.papers || []);
+  if (!res.ok) throw new Error(`Scholar API HTTP ${res.status}`);
 
-  if (data.error) {
-    // Throw so the caller can display it as an inline error on the Scholar badge
-    if (!items.length) throw new Error(data.error);
-    console.warn('Scholar warning:', data.error);
-  }
+  const data = await res.json();
 
-  return items.map(p => ({ ...p, source: 'Google Scholar' }));
+  // API returns a plain array on success, { error, papers[] } on partial failure
+  if (Array.isArray(data)) return data;
+  if (data.error) console.warn('Scholar API:', data.error);
+  return (data.papers || []).map(p => ({ ...p, source: 'Google Scholar' }));
 }
 
 /* ══════════════════════════════════════════════════════════
