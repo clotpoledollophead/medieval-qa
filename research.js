@@ -221,7 +221,7 @@ async function fetchFromCrossRef(query) {
    Direct scrape — no third-party service.
    ══════════════════════════════════════════════════════════ */
 async function fetchFromScholar(query) {
-  const params = new URLSearchParams({ q: query, n: '10' });
+  const params = new URLSearchParams({ q: query, n: '15' });
   const res    = await fetch(`/api/scholar?${params}`, {
     headers: { Accept: 'application/json' }
   });
@@ -265,7 +265,7 @@ async function fetchPapers(query) {
   });
 
   return unique
-    .filter(isRelevant)
+    .filter(p => p.source === 'Google Scholar' || isRelevant(p))
     .sort((a, b) => (b.year || 0) - (a.year || 0))
     .slice(0, 20);
 }

@@ -31,21 +31,37 @@ export async function onRequest(context) {
   const hit = await cache.match(cacheKey);
   if (hit) return addCors(hit);
 
-  /* ── Try RSS first, then HTML ─────────────────────────── */
+  /* ── Build query ladder ──────────────────────────────────
+     If the specific query returns < 5 results, retry with
+     progressively simpler queries until we have >= 5 or
+     we run out of alternatives.                          */
+  const MIN_RESULTS = 5;
+  const queries = buildQueryLadder(query);
   let papers = [];
-  let debug  = {};
+  let debug  = { queries: [] };
 
-  const rssResult  = await tryRSS(query, limit);
-  debug.rss = rssResult.debug;
+  for (const q of queries) {
+    // RSS first, HTML fallback
+    const rssResult = await tryRSS(q, limit);
+    debug.queries.push({ q, method: 'rss', ...rssResult.debug });
 
-  if (rssResult.papers.length > 0) {
-    papers = rssResult.papers;
-    debug.method = 'rss';
-  } else {
-    const htmlResult = await tryHTML(query, limit);
-    debug.html = htmlResult.debug;
-    papers = htmlResult.papers;
-    debug.method = papers.length ? 'html' : 'none';
+    if (rssResult.papers.length >= MIN_RESULTS) {
+      papers = rssResult.papers;
+      debug.method = 'rss';
+      debug.finalQuery = q;
+      break;
+    }
+
+    const htmlResult = await tryHTML(q, limit);
+    debug.queries.push({ q, method: 'html', ...htmlResult.debug });
+
+    const combined = dedupePapers([...rssResult.papers, ...htmlResult.papers]);
+    if (combined.length >= MIN_RESULTS || q === queries[queries.length - 1]) {
+      papers = combined;
+      debug.method = combined.length ? 'html+rss' : 'none';
+      debug.finalQuery = q;
+      break;
+    }
   }
 
   /* ── Sort newest first ────────────────────────────────── */
@@ -61,6 +77,41 @@ export async function onRequest(context) {
   });
   if (papers.length) context.waitUntil(cache.put(cacheKey, response.clone()));
   return response;
+}
+
+/* ══════════════════════════════════════════════════════════
+   QUERY LADDER
+   Builds 3 progressively broader versions of a query so we
+   can retry and guarantee >= 5 results.
+   ══════════════════════════════════════════════════════════ */
+function buildQueryLadder(query) {
+  const q1 = query;   // original (most specific)
+
+  // q2: strip boolean OR, keep all quoted phrases joined with spaces
+  const q2 = query
+    .replace(/OR/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // q3: remove all quotes — plain keyword search
+  const q3 = query
+    .replace(/"([^"]+)"/g, '$1')
+    .replace(/OR/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Deduplicate identical strings
+  return [...new Set([q1, q2, q3])];
+}
+
+function dedupePapers(papers) {
+  const seen = new Set();
+  return papers.filter(p => {
+    const key = (p.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 50);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /* ══════════════════════════════════════════════════════════
