@@ -226,7 +226,7 @@ async function fetchFromCrossRef(query) {
 
 // ▶ Set this after deploying scholar_api/.
 //   e.g. 'https://medieval-scholar-api.onrender.com'
-const SCHOLAR_API_URL = '';
+const SCHOLAR_API_URL = 'https://medieval-qa.onrender.com';
 
 async function fetchFromScholar(query) {
   if (!SCHOLAR_API_URL) return []; // not deployed yet — skip silently
