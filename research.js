@@ -185,25 +185,49 @@ async function fetchFromSemantic(query) {
 
 // ▶ Set this after deploying scholar_api/.
 //   e.g. 'https://medieval-scholar-api.onrender.com'
-const SCHOLAR_API_URL = '';
+const SCHOLAR_API_URL = 'https://medieval-qa.onrender.com';
 
-async function fetchFromScholar(query) {
-  if (!SCHOLAR_API_URL) return []; // not deployed yet — skip silently
+// Map: query string → Promise<paper[]>
+// Prefetch fires all queries on page load; fetchFromScholar awaits the
+// already-running promise rather than starting a duplicate request.
+const SCHOLAR_PREFETCH = new Map();
 
+/* ── Raw fetch (one query) ───────────────────────────────── */
+async function fetchScholarQuery(query) {
   const params = new URLSearchParams({ q: query, n: '20' });
   const res = await fetch(`${SCHOLAR_API_URL}/scholar?${params}`, {
     headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(20000), // 20 s — scholarly is slow on cold start
+    signal: AbortSignal.timeout(60000), // 60 s — allow for cold start + 20 results
   });
-
   if (!res.ok) throw new Error(`Scholar API HTTP ${res.status}`);
-
   const data = await res.json();
-
-  // API returns a plain array on success, { error, papers[] } on partial failure
   if (Array.isArray(data)) return data;
   if (data.error) console.warn('Scholar API:', data.error);
   return (data.papers || []).map(p => ({ ...p, source: 'Google Scholar' }));
+}
+
+/* ── Called by fetchPapers — returns prefetched result if ready ── */
+async function fetchFromScholar(query) {
+  if (!SCHOLAR_API_URL) return [];
+  // Reuse the in-flight or completed prefetch promise
+  if (SCHOLAR_PREFETCH.has(query)) return SCHOLAR_PREFETCH.get(query);
+  // Fallback: start a fresh request (shouldn't happen if prefetch ran first)
+  return fetchScholarQuery(query).catch(() => []);
+}
+
+/* ── Fire all subcategory queries in parallel on page load ── */
+function prefetchAllScholar() {
+  if (!SCHOLAR_API_URL) return;
+  CATEGORIES.forEach(cat => {
+    cat.subcategories.forEach(subcat => {
+      if (!SCHOLAR_PREFETCH.has(subcat.query)) {
+        SCHOLAR_PREFETCH.set(
+          subcat.query,
+          fetchScholarQuery(subcat.query).catch(() => []) // fail silently
+        );
+      }
+    });
+  });
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -245,6 +269,9 @@ const $ = id => document.getElementById(id);
 function init() {
   renderCategoryPanels();
   bindRefreshAll();
+  // Warm Scholar cache immediately — results will be ready (or in-flight)
+  // by the time the user opens any panel.
+  prefetchAllScholar();
 }
 
 /* ── Build panels ────────────────────────────────────────── */
