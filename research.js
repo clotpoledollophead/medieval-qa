@@ -217,13 +217,38 @@ async function fetchFromCrossRef(query) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   SOURCE 4 — Google Scholar (via /api/scholar Cloudflare Worker)
+   Server-side scrape, sorted by date, 30-min server cache.
+   Returns empty array gracefully if Scholar blocks the Worker.
+   ══════════════════════════════════════════════════════════ */
+async function fetchFromScholar(query) {
+  const params = new URLSearchParams({ q: query, n: '10' });
+  const res = await fetch(`/api/scholar?${params}`, {
+    headers: { Accept: 'application/json' }
+  });
+  if (!res.ok) throw new Error(`Scholar worker HTTP ${res.status}`);
+
+  const data = await res.json();
+
+  // Worker returns either an array or { error, papers: [] }
+  const items = Array.isArray(data) ? data : (data.papers || []);
+  if (data.error && !items.length) {
+    // Surface the error as a console warning but don't break other sources
+    console.warn('Scholar:', data.error);
+  }
+
+  return items.map(p => ({ ...p, source: 'Google Scholar' }));
+}
+
+/* ══════════════════════════════════════════════════════════
    MERGE + DEDUPLICATE + FILTER + SORT
    ══════════════════════════════════════════════════════════ */
 async function fetchPapers(query) {
   const settled = await Promise.allSettled([
     fetchFromOpenAlex(query),
     fetchFromSemantic(query),
-    fetchFromCrossRef(query)
+    fetchFromCrossRef(query),
+    fetchFromScholar(query)
   ]);
 
   const all = settled.flatMap(r =>
@@ -243,7 +268,7 @@ async function fetchPapers(query) {
   return unique
     .filter(isRelevant)
     .sort((a, b) => (b.year || 0) - (a.year || 0))
-    .slice(0, 15);
+    .slice(0, 20);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -291,7 +316,7 @@ function renderCategoryPanels() {
           ).join('')}
         </div>
         <div id="papers-area-${cat.id}">
-          <div class="papers-empty">Click "Load research" to fetch live results from OpenAlex, Semantic Scholar, and CrossRef.</div>
+          <div class="papers-empty">Click "Load research" to fetch live results from OpenAlex · Semantic Scholar · CrossRef · Google Scholar.</div>
         </div>
       </div>`;
 
@@ -352,7 +377,7 @@ async function loadCategory(catId, forceRefresh = false) {
       <span class="thinking-dots">
         <span class="dot"></span><span class="dot"></span><span class="dot"></span>
       </span>
-      Fetching from OpenAlex · Semantic Scholar · CrossRef…
+      Fetching from OpenAlex · Semantic Scholar · CrossRef · Google Scholar…
     </div>`;
 
   const results = {};
@@ -384,9 +409,10 @@ function renderPapersArea(catId) {
 
 /* Source badge colours */
 const SOURCE_COLORS = {
-  'OpenAlex':        { bg: 'var(--accent-l)',   text: 'var(--accent)'   },
-  'Semantic Scholar':{ bg: 'var(--purple-l)',    text: 'var(--purple)'   },
-  'CrossRef':        { bg: 'var(--green-l)',     text: 'var(--green)'    },
+  'OpenAlex':         { bg: 'var(--accent-l)',   text: 'var(--accent)'  },
+  'Semantic Scholar': { bg: 'var(--purple-l)',   text: 'var(--purple)'  },
+  'CrossRef':         { bg: 'var(--green-l)',    text: 'var(--green)'   },
+  'Google Scholar':   { bg: 'var(--patience-l)', text: 'var(--patience)'},
 };
 
 function renderPaperCard(paper) {
