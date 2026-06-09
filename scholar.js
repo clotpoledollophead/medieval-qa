@@ -11,6 +11,17 @@
 const CACHE_TTL = 20 * 60; // 20 min server cache
 
 export async function onRequest(context) {
+  // Global safety net — Cloudflare returns a bare 500 (no CORS headers) on
+  // unhandled Worker exceptions. This wrapper ensures we always return a
+  // valid CORS JSON response, even if something blows up internally.
+  try {
+    return await handleRequest(context);
+  } catch (err) {
+    return json({ error: `Worker crash: ${err.message}`, papers: [] }, 200);
+  }
+}
+
+async function handleRequest(context) {
   const { request } = context;
 
   if (request.method === 'OPTIONS') {
@@ -130,13 +141,22 @@ async function tryRSS(query, limit) {
   try {
     const res = await fetch(url, { headers: headers(), redirect: 'follow' });
     status = res.status;
-    body   = await res.text();
+
+    // 429 = Scholar rate-limit. Wait 1.5 s and retry once before giving up.
+    if (status === 429) {
+      await sleep(1500);
+      const retry = await fetch(url, { headers: headers(), redirect: 'follow' });
+      status = retry.status;
+      body   = await retry.text();
+    } else {
+      body = await res.text();
+    }
   } catch (e) {
     return { papers: [], debug: { error: e.message, status } };
   }
 
   if (status !== 200 || !body.includes('<rss')) {
-    return { papers: [], debug: { status, snippet: body.slice(0, 300) } };
+    return { papers: [], debug: { status, snippet: (body || '').slice(0, 300) } };
   }
 
   const papers = parseRSS(body);
@@ -194,13 +214,22 @@ async function tryHTML(query, limit) {
   try {
     const res = await fetch(url, { headers: headers(), redirect: 'follow' });
     status = res.status;
-    body   = await res.text();
+
+    // 429 = Scholar rate-limit. Wait 1.5 s and retry once.
+    if (status === 429) {
+      await sleep(1500);
+      const retry = await fetch(url, { headers: headers(), redirect: 'follow' });
+      status = retry.status;
+      body   = await retry.text();
+    } else {
+      body = await res.text();
+    }
   } catch (e) {
     return { papers: [], debug: { error: e.message, status } };
   }
 
   if (status !== 200) {
-    return { papers: [], debug: { status, snippet: body.slice(0, 300) } };
+    return { papers: [], debug: { status, snippet: (body || '').slice(0, 300) } };
   }
 
   // Detect consent / CAPTCHA pages
@@ -257,6 +286,8 @@ function parseHTML(html) {
 function stripTags(html) {
   return (html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function headers() {
   return {
