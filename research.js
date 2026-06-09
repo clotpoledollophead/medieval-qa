@@ -217,24 +217,23 @@ async function fetchFromCrossRef(query) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   SOURCE 4 — Google Scholar (via /api/scholar Cloudflare Worker)
-   Server-side scrape, sorted by date, 30-min server cache.
-   Returns empty array gracefully if Scholar blocks the Worker.
+   SOURCE 4 — Google Scholar (via /api/scholar worker)
+   Direct scrape — no third-party service.
    ══════════════════════════════════════════════════════════ */
 async function fetchFromScholar(query) {
   const params = new URLSearchParams({ q: query, n: '10' });
-  const res = await fetch(`/api/scholar?${params}`, {
+  const res    = await fetch(`/api/scholar?${params}`, {
     headers: { Accept: 'application/json' }
   });
   if (!res.ok) throw new Error(`Scholar worker HTTP ${res.status}`);
 
-  const data = await res.json();
-
-  // Worker returns either an array or { error, papers: [] }
+  const data  = await res.json();
   const items = Array.isArray(data) ? data : (data.papers || []);
-  if (data.error && !items.length) {
-    // Surface the error as a console warning but don't break other sources
-    console.warn('Scholar:', data.error);
+
+  if (data.error) {
+    // Throw so the caller can display it as an inline error on the Scholar badge
+    if (!items.length) throw new Error(data.error);
+    console.warn('Scholar warning:', data.error);
   }
 
   return items.map(p => ({ ...p, source: 'Google Scholar' }));
@@ -438,6 +437,7 @@ function renderPaperCard(paper) {
       ${authors  ? `<div class="paper-authors">${authors}</div>`   : ''}
       ${abstract ? `<div class="paper-abstract">${abstract}</div>` : ''}
       ${url      ? `<a class="paper-link" href="${escHtml(url)}" target="_blank" rel="noopener">View article ↗</a>` : ''}
+      ${paper.cited_by ? `<div class="paper-journal" style="margin-top:4px">Cited by ${paper.cited_by}</div>` : ''}
     </div>`;
 }
 

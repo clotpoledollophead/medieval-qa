@@ -1,165 +1,237 @@
 /* ══════════════════════════════════════════════════════════
    functions/api/scholar.js — Cloudflare Pages Function
-   Server-side Google Scholar scraper.
-   Deploy alongside your existing /api/ask function.
+   Scrapes Google Scholar via:
+     1. RSS output  (?output=rss) — clean XML, less blocked
+     2. HTML fallback             — full result page parsing
 
-   Endpoint: GET /api/scholar?q=ENCODED_QUERY&n=10
-   Returns:  JSON array of paper objects, or { error, papers: [] }
-
-   Caches each query for 30 min using the Cloudflare Cache API
-   to avoid hammering Scholar on repeated requests.
+   GET /api/scholar?q=QUERY&n=10
+   Returns JSON array of papers, or { error, papers[], debug }
    ══════════════════════════════════════════════════════════ */
 
-const CACHE_TTL = 30 * 60; // seconds
+const CACHE_TTL = 20 * 60; // 20 min server cache
 
 export async function onRequest(context) {
   const { request } = context;
 
-  // ── CORS preflight ────────────────────────────────────────
   if (request.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders() });
+    return new Response(null, { headers: cors() });
   }
 
   const url   = new URL(request.url);
-  const query = url.searchParams.get('q') || '';
+  const query = (url.searchParams.get('q') || '').trim();
   const limit = Math.min(parseInt(url.searchParams.get('n') || '10', 10), 20);
 
-  if (!query.trim()) {
-    return jsonResponse({ error: 'Missing q parameter', papers: [] }, 400);
-  }
+  if (!query) return json({ error: 'Missing q', papers: [] }, 400);
 
-  // ── Cache lookup ──────────────────────────────────────────
+  /* ── Cloudflare cache ─────────────────────────────────── */
   const cache    = caches.default;
   const cacheKey = new Request(
-    `https://scholar.google.com/__cache__?q=${encodeURIComponent(query)}&n=${limit}`,
-    { method: 'GET' }
+    `https://scholar.google.com/__cache__?q=${encodeURIComponent(query)}&n=${limit}`
   );
-  const cached = await cache.match(cacheKey);
-  if (cached) return addCors(cached);
+  const hit = await cache.match(cacheKey);
+  if (hit) return addCors(hit);
 
-  // ── Fetch from Scholar ────────────────────────────────────
-  const scholarUrl =
-    `https://scholar.google.com/scholar` +
-    `?q=${encodeURIComponent(query)}` +
-    `&hl=en&num=${limit}&scisbd=1`;       // scisbd=1 = sort by date
+  /* ── Try RSS first, then HTML ─────────────────────────── */
+  let papers = [];
+  let debug  = {};
 
-  let html;
-  try {
-    const res = await fetch(scholarUrl, {
-      headers: scholarHeaders(),
-      redirect: 'follow',
-      cf: { cacheTtl: 0, cacheEverything: false }
-    });
+  const rssResult  = await tryRSS(query, limit);
+  debug.rss = rssResult.debug;
 
-    // Scholar sometimes returns 429 (rate-limit) or redirects to a CAPTCHA page
-    if (!res.ok) {
-      return jsonResponse({ error: `Scholar HTTP ${res.status}`, papers: [] }, 200);
-    }
-
-    html = await res.text();
-  } catch (err) {
-    return jsonResponse({ error: err.message, papers: [] }, 200);
+  if (rssResult.papers.length > 0) {
+    papers = rssResult.papers;
+    debug.method = 'rss';
+  } else {
+    const htmlResult = await tryHTML(query, limit);
+    debug.html = htmlResult.debug;
+    papers = htmlResult.papers;
+    debug.method = papers.length ? 'html' : 'none';
   }
 
-  // Detect CAPTCHA / block page
-  if (isBlocked(html)) {
-    return jsonResponse({ error: 'Scholar blocked the request (CAPTCHA). Try again later.', papers: [] }, 200);
-  }
+  /* ── Sort newest first ────────────────────────────────── */
+  papers.sort((a, b) => (b.year || 0) - (a.year || 0));
 
-  // ── Parse ─────────────────────────────────────────────────
-  const papers = parseScholar(html, limit);
+  const payload = JSON.stringify(papers.length
+    ? papers
+    : { error: 'No results from Scholar', papers: [], debug }
+  );
 
-  // ── Cache result ──────────────────────────────────────────
-  const body     = JSON.stringify(papers);
-  const response = new Response(body, {
-    headers: {
-      ...corsHeaders(),
-      'Content-Type':  'application/json',
-      'Cache-Control': `public, max-age=${CACHE_TTL}`,
-    }
+  const response = new Response(payload, {
+    headers: { ...cors(), 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${CACHE_TTL}` }
   });
-  context.waitUntil(cache.put(cacheKey, response.clone()));
+  if (papers.length) context.waitUntil(cache.put(cacheKey, response.clone()));
   return response;
 }
 
-/* ── Parser ──────────────────────────────────────────────────
-   Google Scholar result HTML structure (as of 2024):
-     <div class="gs_ri">
-       <h3 class="gs_rt"><a href="URL">TITLE</a></h3>
-       <div class="gs_a">Authors - Journal, YEAR - Publisher</div>
-       <div class="gs_rs">Abstract snippet…</div>
-     </div>
-   ─────────────────────────────────────────────────────────── */
-function parseScholar(html, limit) {
+/* ══════════════════════════════════════════════════════════
+   RSS APPROACH
+   https://scholar.google.com/scholar?q=…&output=rss&num=N&scisbd=1
+   Returns <rss> XML — far easier to parse than the HTML page
+   and historically less aggressively rate-limited.
+   ══════════════════════════════════════════════════════════ */
+async function tryRSS(query, limit) {
+  const url =
+    `https://scholar.google.com/scholar` +
+    `?q=${encodeURIComponent(query)}` +
+    `&hl=en&num=${limit}&output=rss&scisbd=1`;
+
+  let body = '', status = 0;
+  try {
+    const res = await fetch(url, { headers: headers(), redirect: 'follow' });
+    status = res.status;
+    body   = await res.text();
+  } catch (e) {
+    return { papers: [], debug: { error: e.message, status } };
+  }
+
+  if (status !== 200 || !body.includes('<rss')) {
+    return { papers: [], debug: { status, snippet: body.slice(0, 300) } };
+  }
+
+  const papers = parseRSS(body);
+  return { papers, debug: { status, parsed: papers.length } };
+}
+
+function parseRSS(xml) {
+  const papers = [];
+  const items  = xml.match(/<item>([\s\S]*?)<\/item>/g) || [];
+
+  for (const item of items) {
+    const title   = cdataOrTag(item, 'title');
+    const link    = cdataOrTag(item, 'link').trim();
+    const desc    = cdataOrTag(item, 'description');
+
+    const clean   = stripTags(desc);
+    const yearHit = clean.match(/\b(19|20)\d{2}\b/g);
+    const year    = yearHit ? parseInt(yearHit[yearHit.length - 1], 10) : 0;
+
+    // Author line is often the first sentence of the description
+    const authorLine = clean.split('\n')[0] || '';
+    const dashParts  = authorLine.split(/\s*[-–]\s*/);
+    const authors    = dashParts[0] ? dashParts[0].trim() : '';
+    const journal    = dashParts[1] ? dashParts[1].replace(/,?\s*(19|20)\d{2}.*$/, '').trim() : '';
+
+    const abstract = clean.length > 250 ? clean.slice(0, 250) + '…' : clean;
+
+    if (title && link) {
+      papers.push({ title: stripTags(title), authors, year, journal, abstract, url: link, source: 'Google Scholar' });
+    }
+  }
+  return papers;
+}
+
+function cdataOrTag(xml, tag) {
+  // Match <tag><![CDATA[…]]></tag> or plain <tag>…</tag>
+  const re = new RegExp(
+    `<${tag}[^>]*>(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([\\s\\S]*?))<\\/${tag}>`, 'i'
+  );
+  const m = xml.match(re);
+  return m ? (m[1] !== undefined ? m[1] : m[2] || '') : '';
+}
+
+/* ══════════════════════════════════════════════════════════
+   HTML FALLBACK
+   Parses the standard Scholar search-results page.
+   Uses the stable class names gs_ri / gs_rt / gs_a / gs_rs.
+   ══════════════════════════════════════════════════════════ */
+async function tryHTML(query, limit) {
+  const url =
+    `https://scholar.google.com/scholar` +
+    `?q=${encodeURIComponent(query)}&hl=en&num=${limit}&scisbd=1`;
+
+  let body = '', status = 0;
+  try {
+    const res = await fetch(url, { headers: headers(), redirect: 'follow' });
+    status = res.status;
+    body   = await res.text();
+  } catch (e) {
+    return { papers: [], debug: { error: e.message, status } };
+  }
+
+  if (status !== 200) {
+    return { papers: [], debug: { status, snippet: body.slice(0, 300) } };
+  }
+
+  // Detect consent / CAPTCHA pages
+  const lower = body.toLowerCase();
+  if (
+    lower.includes('before you continue') ||
+    lower.includes('consent.google') ||
+    lower.includes('unusual traffic') ||
+    lower.includes('captcha') ||
+    body.length < 3000
+  ) {
+    return { papers: [], debug: { status, blocked: true, snippet: body.slice(0, 400) } };
+  }
+
+  const papers = parseHTML(body);
+  return { papers, debug: { status, parsed: papers.length, bodyLen: body.length } };
+}
+
+function parseHTML(html) {
   const papers = [];
 
-  // Split on each result container
-  const blocks = html.split(/<div[^>]+class="gs_ri"[^>]*>/);
-  for (let i = 1; i < blocks.length && papers.length < limit; i++) {
+  // Each result block starts with a div containing gs_ri
+  const blocks = html.split(/<div[^>]+class="gs_ri"[^>]*>/i);
+
+  for (let i = 1; i < blocks.length; i++) {
     const block = blocks[i];
 
-    // Title + URL
-    const titleMatch = block.match(/<h3[^>]*class="gs_rt"[^>]*>.*?<a[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
-    if (!titleMatch) continue;
-    const url   = titleMatch[1] || '';
-    const title = stripTags(titleMatch[2]).trim();
+    // Title + URL from <h3 class="gs_rt"><a href="…">TITLE</a>
+    const titleM = block.match(/<h3[^>]*class="[^"]*gs_rt[^"]*"[^>]*>[\s\S]*?<a[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!titleM) continue;
+    const url   = titleM[1] || '';
+    const title = stripTags(titleM[2]).trim();
     if (!title) continue;
 
-    // Author/venue/year line (.gs_a)
-    const authorMatch = block.match(/<div[^>]+class="gs_a"[^>]*>([\s\S]*?)<\/div>/i);
-    const authorLine  = authorMatch ? stripTags(authorMatch[1]).trim() : '';
+    // Author / venue line <div class="gs_a">
+    const authorM  = block.match(/<div[^>]+class="[^"]*gs_a[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    const authorLine = authorM ? stripTags(authorM[1]).trim() : '';
+    const yearHit    = authorLine.match(/\b(19|20)\d{2}\b/g);
+    const year       = yearHit ? parseInt(yearHit[yearHit.length - 1], 10) : 0;
+    const parts      = authorLine.split(/\s*[-–]\s*/);
+    const authors    = parts[0] ? parts[0].trim() : '';
+    const journal    = parts[1] ? parts[1].replace(/,?\s*(19|20)\d{2}.*$/, '').trim() : '';
 
-    // Year: last 4-digit year in the author line
-    const yearMatches = authorLine.match(/\b(19|20)\d{2}\b/g);
-    const year = yearMatches ? parseInt(yearMatches[yearMatches.length - 1], 10) : 0;
-
-    // Authors and journal: "A. Smith, B. Jones - Nature, 2021 - springer.com"
-    const lineParts = authorLine.split(/\s*[-–]\s*/);
-    const authors  = lineParts[0] ? lineParts[0].trim() : '';
-    const journal  = lineParts[1] ? lineParts[1].replace(/,?\s*(19|20)\d{2}.*$/, '').trim() : '';
-
-    // Abstract snippet (.gs_rs)
-    const snipMatch = block.match(/<div[^>]+class="gs_rs"[^>]*>([\s\S]*?)<\/div>/i);
-    const abstract  = snipMatch ? stripTags(snipMatch[1]).trim() : '';
+    // Snippet <div class="gs_rs">
+    const snipM   = block.match(/<div[^>]+class="[^"]*gs_rs[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    const abstract = snipM ? stripTags(snipM[1]).trim().slice(0, 280) : '';
 
     papers.push({ title, authors, year, journal, abstract, url, source: 'Google Scholar' });
   }
-
-  // Sort newest-first
-  return papers.sort((a, b) => (b.year || 0) - (a.year || 0));
+  return papers;
 }
 
-/* ── Helpers ─────────────────────────────────────────────── */
+/* ── Shared helpers ──────────────────────────────────────── */
 function stripTags(html) {
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return (html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function isBlocked(html) {
-  const lower = html.toLowerCase();
-  return (
-    lower.includes('unusual traffic') ||
-    lower.includes('captcha') ||
-    lower.includes('id="captcha"') ||
-    lower.includes('recaptcha') ||
-    lower.length < 2000        // suspiciously short = likely an error page
-  );
-}
-
-function scholarHeaders() {
+function headers() {
   return {
+    // Full Chrome 124 UA
     'User-Agent':
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
       'AppleWebKit/537.36 (KHTML, like Gecko) ' +
       'Chrome/124.0.0.0 Safari/537.36',
-    'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Referer':         'https://scholar.google.com/',
-    'DNT':             '1',
+    'Accept':           'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language':  'en-US,en;q=0.9',
+    'Accept-Encoding':  'gzip, deflate, br',
+    'Connection':       'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest':   'document',
+    'Sec-Fetch-Mode':   'navigate',
+    'Sec-Fetch-Site':   'none',
+    'Sec-Fetch-User':   '?1',
+    'sec-ch-ua':        '"Chromium";v="124","Google Chrome";v="124","Not-A.Brand";v="99"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    // GDPR consent cookie — avoids the "Before you continue" redirect
+    'Cookie': 'CONSENT=YES+cb; SOCS=CAESHAgCEhJnd3NfMjAyNDAxMDItMF9SQzEaAmVuIAEaBgiAo46sBg',
   };
 }
 
-function corsHeaders() {
+function cors() {
   return {
     'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -167,15 +239,15 @@ function corsHeaders() {
   };
 }
 
-function jsonResponse(data, status = 200) {
+function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...cors(), 'Content-Type': 'application/json' }
   });
 }
 
-function addCors(response) {
-  const r = new Response(response.body, response);
-  Object.entries(corsHeaders()).forEach(([k, v]) => r.headers.set(k, v));
+function addCors(res) {
+  const r = new Response(res.body, res);
+  Object.entries(cors()).forEach(([k, v]) => r.headers.set(k, v));
   return r;
 }
