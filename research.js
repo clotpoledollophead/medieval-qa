@@ -1,11 +1,12 @@
 /* ══════════════════════════════════════════════════════════
    research.js — Live Research Dashboard
-   Sources: OpenAlex · Semantic Scholar · CrossRef
+   Sources: OpenAlex · Semantic Scholar · Google Scholar
    All free, no API key, CORS-friendly, merged + deduped
    ══════════════════════════════════════════════════════════ */
 'use strict';
 
 const CACHE_TTL = 24 * 60 * 60 * 1000;
+const PAGE_SIZE  = 9;
 
 /* ── Mandatory anchor for OpenAlex (supports boolean search) ─ */
 const ANCHOR =
@@ -176,49 +177,7 @@ async function fetchFromSemantic(query) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   SOURCE 3 — CrossRef
-   api.crossref.org · CORS ✓ · no key needed
-   ══════════════════════════════════════════════════════════ */
-async function fetchFromCrossRef(query) {
-  const params = new URLSearchParams({
-    query:           query,
-    sort:            'published',
-    order:           'desc',
-    rows:            '10',
-    select:          'title,author,published,container-title,abstract,DOI',
-    'filter':        'from-pub-date:1990'
-  });
-
-  const res = await fetch(`https://api.crossref.org/works?${params}`,
-    { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`CrossRef ${res.status}`);
-
-  const data = await res.json();
-  return (data.message?.items || []).map(item => {
-    const title   = Array.isArray(item.title) ? item.title[0] : (item.title || '');
-    const journal = Array.isArray(item['container-title'])
-                    ? item['container-title'][0]
-                    : (item['container-title'] || '');
-    const authors = (item.author || []).slice(0, 3)
-                    .map(a => [a.given, a.family].filter(Boolean).join(' '))
-                    .filter(Boolean).join(', ');
-    const year    = item.published?.['date-parts']?.[0]?.[0] || 0;
-    // CrossRef abstracts often contain JATS XML tags — strip them
-    const abstract = (item.abstract || '').replace(/<[^>]+>/g, '').trim();
-    const doi     = item.DOI || '';
-
-    return {
-      title, authors, year, journal,
-      abstract: abstract.length > 320 ? abstract.slice(0, 320) + '…' : abstract,
-      url:  doi ? `https://doi.org/${doi}` : '',
-      source: 'CrossRef'
-    };
-  });
-}
-
-
-/* ══════════════════════════════════════════════════════════
-   SOURCE 4 — Google Scholar
+   SOURCE 3 — Google Scholar
    Calls the Python/scholarly microservice (scholar_api/).
    Deploy scholar_api/ to Render or Railway, then paste
    the deployed URL into SCHOLAR_API_URL below.
@@ -226,12 +185,12 @@ async function fetchFromCrossRef(query) {
 
 // ▶ Set this after deploying scholar_api/.
 //   e.g. 'https://medieval-scholar-api.onrender.com'
-const SCHOLAR_API_URL = 'https://medieval-qa.onrender.com';
+const SCHOLAR_API_URL = '';
 
 async function fetchFromScholar(query) {
   if (!SCHOLAR_API_URL) return []; // not deployed yet — skip silently
 
-  const params = new URLSearchParams({ q: query, n: '15' });
+  const params = new URLSearchParams({ q: query, n: '20' });
   const res = await fetch(`${SCHOLAR_API_URL}/scholar?${params}`, {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(20000), // 20 s — scholarly is slow on cold start
@@ -254,7 +213,6 @@ async function fetchPapers(query) {
   const settled = await Promise.allSettled([
     fetchFromOpenAlex(query),
     fetchFromSemantic(query),
-    fetchFromCrossRef(query),
     fetchFromScholar(query)
   ]);
 
@@ -275,7 +233,7 @@ async function fetchPapers(query) {
   return unique
     .filter(p => p.source === 'Google Scholar' || isRelevant(p))
     .sort((a, b) => (b.year || 0) - (a.year || 0))
-    .slice(0, 20);
+    .slice(0, 60);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -295,7 +253,7 @@ function renderCategoryPanels() {
   root.innerHTML = '';
 
   CATEGORIES.forEach(cat => {
-    state[cat.id] = { papers: {}, loadedAt: null, activeSubcat: cat.subcategories[0].id };
+    state[cat.id] = { papers: {}, loadedAt: null, activeSubcat: cat.subcategories[0].id, page: {} };
 
     const panel = document.createElement('div');
     panel.className = 'category-panel';
@@ -323,7 +281,7 @@ function renderCategoryPanels() {
           ).join('')}
         </div>
         <div id="papers-area-${cat.id}">
-          <div class="papers-empty">Click "Load research" to fetch live results from OpenAlex · Semantic Scholar · CrossRef · Google Scholar.</div>
+          <div class="papers-empty">Click "Load research" to fetch live results from OpenAlex · Semantic Scholar · Google Scholar.</div>
         </div>
       </div>`;
 
@@ -339,9 +297,11 @@ function renderCategoryPanels() {
     });
     panel.querySelectorAll('.subcat-tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        state[tab.dataset.cat].activeSubcat = tab.dataset.subcat;
+        const cId = tab.dataset.cat;
+        state[cId].activeSubcat = tab.dataset.subcat;
+        state[cId].page[tab.dataset.subcat] = 0; // reset page on tab switch
         panel.querySelectorAll('.subcat-tab').forEach(t => t.classList.toggle('active', t === tab));
-        renderPapersArea(tab.dataset.cat);
+        renderPapersArea(cId);
       });
     });
   });
@@ -384,7 +344,7 @@ async function loadCategory(catId, forceRefresh = false) {
       <span class="thinking-dots">
         <span class="dot"></span><span class="dot"></span><span class="dot"></span>
       </span>
-      Fetching from OpenAlex · Semantic Scholar · CrossRef · Google Scholar…
+      Fetching from OpenAlex · Semantic Scholar · Google Scholar…
     </div>`;
 
   const results = {};
@@ -406,19 +366,53 @@ async function loadCategory(catId, forceRefresh = false) {
 
 /* ── Render ──────────────────────────────────────────────── */
 function renderPapersArea(catId) {
-  const data = state[catId].papers[state[catId].activeSubcat];
-  const area = $('papers-area-' + catId);
+  const subcatId = state[catId].activeSubcat;
+  const data     = state[catId].papers[subcatId];
+  const area     = $('papers-area-' + catId);
+
   if (!data)        { area.innerHTML = '<div class="papers-empty">No data loaded yet.</div>'; return; }
   if (data.error)   { area.innerHTML = `<div class="paper-error">⚠ ${escHtml(data.error)}</div>`; return; }
   if (!data.length) { area.innerHTML = '<div class="papers-empty">No results found — try a different subcategory.</div>'; return; }
-  area.innerHTML = `<div class="papers-grid">${data.map(renderPaperCard).join('')}</div>`;
+
+  // Pagination state
+  if (!state[catId].page[subcatId]) state[catId].page[subcatId] = 0;
+  const page     = state[catId].page[subcatId];
+  const total    = data.length;
+  const pages    = Math.ceil(total / PAGE_SIZE);
+  const slice    = data.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const prevDis  = page === 0           ? 'disabled' : '';
+  const nextDis  = page >= pages - 1   ? 'disabled' : '';
+
+  area.innerHTML = `
+    <div class="papers-grid">${slice.map(renderPaperCard).join('')}</div>
+    ${total > PAGE_SIZE ? `
+    <div class="papers-pagination">
+      <button class="page-btn" ${prevDis}
+        onclick="changePage('${catId}','${subcatId}',-1)">← Prev</button>
+      <span class="page-info">Page ${page + 1} of ${pages} <span class="page-total">(${total} results)</span></span>
+      <button class="page-btn" ${nextDis}
+        onclick="changePage('${catId}','${subcatId}',1)">Next →</button>
+    </div>` : ''}`;
+}
+
+function changePage(catId, subcatId, delta) {
+  const data  = state[catId].papers[subcatId];
+  const pages = Math.ceil((data || []).length / PAGE_SIZE);
+  state[catId].page[subcatId] = Math.max(0, Math.min(
+    (state[catId].page[subcatId] || 0) + delta,
+    pages - 1
+  ));
+  renderPapersArea(catId);
+  // Scroll the panel header into view so the new page starts visible
+  const header = $('header-' + catId);
+  if (header) header.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 /* Source badge colours */
 const SOURCE_COLORS = {
   'OpenAlex':         { bg: 'var(--accent-l)',   text: 'var(--accent)'  },
   'Semantic Scholar': { bg: 'var(--purple-l)',   text: 'var(--purple)'  },
-  'CrossRef':         { bg: 'var(--green-l)',    text: 'var(--green)'   },
   'Google Scholar':   { bg: 'var(--patience-l)', text: 'var(--patience)'},
 };
 
