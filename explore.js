@@ -55,7 +55,7 @@ Hit watz Ennias þe athel, and his highe kynde,
 Welneȝe of al þe wele in þe west iles.`
     },
     {
-      name: 'The Green Knight\'s entrance (ll. 136–144)',
+      name: 'The Green Knight's entrance (ll. 136–144)',
       text: `Þer hales in at þe halle dor an aghlich mayster,
 On þe most on þe molde on mesure hyghe;
 Fro þe swyre to þe þwange so sware and so þik,
@@ -278,17 +278,17 @@ async function decode() {
     const data = parseJsonRobust(raw);
     if (!data) throw new Error('Could not parse model response');
 
-    // Build words array from the embedded glossary
+    // Build words array: Wiktionary live → static glossary fallback
     const tokens = tokenisePassage(text);
-    data.words = tokens.map(tok => {
-      const entry = lookupWord(tok);
-      return entry
-        ? { me: tok, phonetic: entry.phonetic, modern: entry.modern, grammar: entry.grammar, found: true }
-        : { me: tok, phonetic: '—', modern: '—', grammar: '—', found: false };
-    });
+    // Show glossary table with loading state immediately
+    renderGlossaryLoading(tokens.length);
+    $('decode-results').classList.add('visible');
+    // Fetch all tokens in parallel (Wiktionary handles concurrent requests fine)
+    data.words = await Promise.all(tokens.map(lookupWordFull));
+    // Re-render glossary with live results
+    renderGlossary(data.words);
 
     renderResults(data, text);
-    $('decode-results').classList.add('visible');
 
     // Corpus passage lookup — non-blocking
     const poemKey = { pearl:'pearl', sggk:'sggk', patience:'patience', cleanness:'cleanness' }[currentPoem];
@@ -320,6 +320,134 @@ function showDecodeError(message, raw) {
   }
   errEl.innerHTML = `⚠ ${escHtml(message)}${preview}`;
   errEl.style.display = 'block';
+}
+
+/* ══════════════════════════════════════════════════════════
+   WIKTIONARY LIVE LOOKUP
+   Uses the Wiktionary REST API to look up Middle English
+   (language code: enm) definitions for each token.
+   Falls back to the static glossary.js for words not on
+   Wiktionary, then marks unmatched tokens as "not found".
+   ══════════════════════════════════════════════════════════ */
+
+// Session cache: normalised word → result object (avoids duplicate API calls)
+const WIKT_CACHE = new Map();
+
+const WIKT_BASE = 'https://en.wiktionary.org/api/rest_v1/page/definition';
+
+/* Attempt variants of a word to maximise Wiktionary hit rate */
+function spellingVariants(word) {
+  const variants = new Set([word]);
+
+  // ME → Modern normalisation
+  const norm = word
+    .replace(/þ/g, 'th')
+    .replace(/ȝ/g, 'y')
+    .replace(/æ/g, 'ae')
+    .replace(/ð/g, 'th');
+  variants.add(norm);
+
+  // Common ME suffix endings
+  for (const [suffix, replacement] of [
+    [/ez$/, ''],  [/ez$/, 'e'],
+    [/z$/,  ''],  [/ed$/, ''],  [/ed$/, 'e'],
+    [/ande$/, ''], [/ande$/, 'e'],
+    [/e$/,  ''],  [/ly$/, ''],
+  ]) {
+    const stem = word.replace(suffix, replacement);
+    if (stem && stem !== word) variants.add(stem);
+  }
+
+  return [...variants];
+}
+
+/* Fetch one word from Wiktionary — returns {modern, grammar, source} or null */
+async function lookupWiktionary(word) {
+  if (WIKT_CACHE.has(word)) return WIKT_CACHE.get(word);
+
+  for (const variant of spellingVariants(word)) {
+    try {
+      const res = await fetch(
+        `${WIKT_BASE}/${encodeURIComponent(variant)}`,
+        { headers: { Accept: 'application/json' } }
+      );
+      if (!res.ok) continue;
+
+      const data = await res.json();
+
+      // Prefer the Middle English section (enm), then check other sections
+      // for explicit Middle English labels
+      const candidates = [
+        ...(data.enm || []),
+        ...(data.en  || []).filter(e =>
+          (e.language || '').toLowerCase().includes('middle english') ||
+          (e.partOfSpeech || '').toLowerCase().includes('middle english')
+        ),
+      ];
+
+      if (!candidates.length) continue;
+
+      const entry    = candidates[0];
+      const defObj   = entry.definitions?.[0];
+      if (!defObj) continue;
+
+      // Strip HTML tags from definition text
+      const modern   = (defObj.definition || '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .trim()
+        .slice(0, 80);
+
+      if (!modern) continue;
+
+      const result = {
+        modern,
+        phonetic: '—',
+        grammar:  entry.partOfSpeech || '',
+        source:   'Wiktionary',
+        found:    true,
+      };
+      WIKT_CACHE.set(word, result);
+      return result;
+    } catch { /* network error — try next variant */ }
+  }
+
+  WIKT_CACHE.set(word, null); // cache miss so we don't retry
+  return null;
+}
+
+/* Full lookup chain: Wiktionary → static glossary → not found */
+async function lookupWordFull(rawTok) {
+  const word = rawTok.toLowerCase().trim();
+
+  // 1. Live Wiktionary lookup
+  const wikt = await lookupWiktionary(word);
+  if (wikt) return { me: rawTok, ...wikt };
+
+  // 2. Static glossary fallback (Pearl-poet specific entries)
+  const gloss = lookupWord(word);
+  if (gloss) return {
+    me: rawTok,
+    phonetic: gloss.phonetic,
+    modern:   gloss.modern,
+    grammar:  gloss.grammar,
+    source:   'Glossary',
+    found:    true,
+  };
+
+  // 3. Not found
+  return { me: rawTok, phonetic: '—', modern: '—', grammar: '—', source: '', found: false };
+}
+
+/* Show placeholder rows while Wiktionary is fetching */
+function renderGlossaryLoading(count) {
+  const tbody = $('gloss-tbody');
+  tbody.innerHTML = `<tr>
+    <td colspan="4" style="text-align:center;padding:16px;color:var(--muted);font-family:var(--serif);font-style:italic">
+      Looking up ${count} tokens in Wiktionary
+      <span class="thinking-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+    </td></tr>`;
+  $('word-count-label').textContent = '';
 }
 
 /* ── Tokenise a Middle English passage into word tokens ──── */
@@ -417,22 +545,32 @@ function renderSideBySide(meText, modTranslation) {
 function renderGlossary(words) {
   const tbody = $('gloss-tbody');
   if (!words.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);font-style:italic;">No tokens found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);font-style:italic;">No tokens found.</td></tr>';
     $('word-count-label').textContent = '';
     return;
   }
   const found  = words.filter(w => w.found).length;
+  const wikt   = words.filter(w => w.source === 'Wiktionary').length;
   const total  = words.length;
+
+  const sourceBadge = src => {
+    if (src === 'Wiktionary') return '<span style="font-size:10px;background:var(--purple-l);color:var(--purple);padding:1px 5px;border-radius:3px;font-family:var(--sans);font-weight:700">Wikt</span>';
+    if (src === 'Glossary')   return '<span style="font-size:10px;background:var(--accent-l);color:var(--accent);padding:1px 5px;border-radius:3px;font-family:var(--sans);font-weight:700">MED</span>';
+    return '';
+  };
+
   tbody.innerHTML = words.map(w => {
     const dim = !w.found ? ' style="opacity:0.45"' : '';
     return `<tr${dim}>
-      <td class="gloss-me">${escHtml(w.me       || '')}</td>
+      <td class="gloss-me">${escHtml(w.me || '')}</td>
       <td class="gloss-phon">${escHtml(w.phonetic || '')}</td>
-      <td class="gloss-mod">${w.found ? escHtml(w.modern || '') : '<em style="color:var(--muted)">not in glossary</em>'}</td>
-      <td class="gloss-gram">${escHtml(w.grammar  || '')}</td>
+      <td class="gloss-mod">${w.found ? escHtml(w.modern || '') : '<em style="color:var(--muted)">not found</em>'}</td>
+      <td class="gloss-gram">${escHtml(w.grammar || '')}</td>
+      <td>${w.found ? sourceBadge(w.source) : ''}</td>
     </tr>`;
   }).join('');
-  $('word-count-label').textContent = `${found}/${total} tokens matched`;
+  $('word-count-label').textContent =
+    `${found}/${total} matched · ${wikt} from Wiktionary`;
 }
 
 
